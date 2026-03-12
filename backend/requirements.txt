@@ -1,0 +1,7 @@
+fastapi
+uvicorn
+python-socketio
+opencv-python
+mediapipe==0.10.20
+numpy
+aiohttp

@@ -1,0 +1,21 @@
+body {
+    margin: 0;
+    overflow: hidden;
+    background-color: #000;
+}
+
+#container {
+    width: 100vw;
+    height: 100vh;
+}
+
+#debug-info {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    color: lime;
+    font-family: monospace;
+    background: rgba(0, 0, 0, 0.5);
+    padding: 10px;
+    pointer-events: none;
+}
