@@ -1,5 +1,4 @@
 @echo off
-cd /d "%~dp0"
-echo Opening frontend in browser...
-start frontend\index.html
+echo Opening frontend via Backend Server...
+start http://localhost:8000/view/index.html
 pause

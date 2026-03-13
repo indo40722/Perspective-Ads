@@ -1,67 +1,203 @@
-// --- 設定 ---
-const SOCKET_URL = "http://localhost:8000";
+﻿// Perspective Ads - Frontend Logic
+// Implements the "Peeking" interaction stages for anamorphic illusion
 
-// --- グローバル変数 ---
-let camera, scene, renderer;
-let cube, plane;
-let targetX = 0, targetY = 0;
-let currentX = 0, currentY = 0;
+// -----------------------------------------------------------------------------
+// 1. Configuration & Global State
+// -----------------------------------------------------------------------------
+const CONFIG = {
+    // Camera settings
+    // ① Ad fills more of the screen (Closer camera)
+    CAMERA_Z: 45, 
+    
+    // Parallax Factors - how much the camera moves relative to face movement
+    // adjusted for closer camera
+    PARALLAX_FACTOR_X: 150, // Much Bigger range to easily see behind
+    PARALLAX_FACTOR_Y: 0, // Disable vertical movement (Only Left/Right)
+    
+    // Smoothing (Lerp) factor
+    SMOOTHING: 0.1, 
 
-// --- 初期化 ---
+    // Dimensions (16:9 Image)
+    POSTER_WIDTH: 64,
+    POSTER_HEIGHT: 36,
+    
+    // QR Code
+    QR_SIZE: 15,
+    QR_DEPTH: -40, // Push it further back so it's easier to peek around the edge
+};
+
+// State
+let faceData = { x: 0, y: 0, detected: false };
+let targetCamPos = { x: 0, y: 0, z: CONFIG.CAMERA_Z };
+let currentCamPos = { x: 0, y: 0, z: CONFIG.CAMERA_Z };
+
+// Three.js Globals
+let scene, camera, renderer;
+let posterMesh, qrMesh;
+
+// DOM Elements
+const hudId = document.getElementById('hud-id');
+const hudDist = document.getElementById('hud-dist');
+const hudReticle = document.getElementById('reticle');
+
+// -----------------------------------------------------------------------------
+// 2. Initialization
+// -----------------------------------------------------------------------------
 function init() {
-    // シーン作成
+    // Setup Scene
     scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x222222);
+    scene.fog = new THREE.FogExp2(0x000000, 0.002);
 
-    // カメラ作成
-    camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-    camera.position.z = 5;
+    // Setup Camera
+    camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.z = CONFIG.CAMERA_Z;
 
-    // レンダラー作成
-    renderer = new THREE.WebGLRenderer({ antialias: true });
+    // Setup Renderer
+    renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.shadowMap.enabled = true;
     document.getElementById('container').appendChild(renderer.domElement);
 
-    // --- コンテンツ作成 ---
-    
-    // 1. 真ん中の箱（広告の主役）
-    const geometry = new THREE.BoxGeometry(2, 2, 2);
-    // 複数のマテリアルで面ごとに色を変える
-    const materials = [
-        new THREE.MeshBasicMaterial({ color: 0xff0000 }), // 右
-        new THREE.MeshBasicMaterial({ color: 0x00ff00 }), // 左
-        new THREE.MeshBasicMaterial({ color: 0x0000ff }), // 上
-        new THREE.MeshBasicMaterial({ color: 0xffff00 }), // 下
-        new THREE.MeshBasicMaterial({ color: 0xff00ff }), // 前
-        new THREE.MeshBasicMaterial({ color: 0x00ffff })  // 後
-    ];
-    cube = new THREE.Mesh(geometry, materials);
-    scene.add(cube);
-
-    // 2. 背景のグリッド（奥行き感を強調するため）
-    const gridHelper = new THREE.GridHelper(20, 20);
-    gridHelper.position.y = -2;
-    scene.add(gridHelper);
-    
-    // 3. 遠景の壁（パララックス比較用）
-    const planeGeo = new THREE.PlaneGeometry(20, 10);
-    const planeMat = new THREE.MeshBasicMaterial({ color: 0x444444, side: THREE.DoubleSide });
-    plane = new THREE.Mesh(planeGeo, planeMat);
-    plane.position.z = -5;
-    scene.add(plane);
-
-    // ライト
-    const light = new THREE.PointLight(0xffffff, 1, 100);
-    light.position.set(5, 5, 5);
-    scene.add(light);
-    const ambientLight = new THREE.AmbientLight(0x404040); 
+    // Lighting
+    const ambientLight = new THREE.AmbientLight(0x404040, 2); // Soft white light
     scene.add(ambientLight);
 
-    // ウィンドウリサイズ対応
-    window.addEventListener('resize', onWindowResize, false);
+    const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+    dirLight.position.set(10, 20, 30);
+    dirLight.castShadow = true;
+    scene.add(dirLight);
 
-    // アニメーション開始
+    const spotLight = new THREE.SpotLight(0x00aaff, 1);
+    spotLight.position.set(-20, 10, 10);
+    scene.add(spotLight);
+
+    // Create World Objects
+    createPoster();
+    createHiddenContent();
+    // createEnvironment(); // Removed for simpler look (Request ②)
+
+    // Background color
+    scene.background = new THREE.Color(0x050505); // Very dark gray, almost black
+    window.addEventListener('resize', onWindowResize, false);
+    
+    // Start Loops
+    setupSocket();
     animate();
+}
+
+// -----------------------------------------------------------------------------
+// 3. Object Creation
+// -----------------------------------------------------------------------------
+
+function createPoster() {
+    // Load local image texture
+    const textureLoader = new THREE.TextureLoader();
+    // Assuming the user places the image at 'assets/poster.png'
+    const texture = textureLoader.load('assets/poster.png'); 
+
+    const geometry = new THREE.PlaneGeometry(CONFIG.POSTER_WIDTH, CONFIG.POSTER_HEIGHT);
+    const material = new THREE.MeshStandardMaterial({ 
+        map: texture,
+        side: THREE.DoubleSide,
+        roughness: 0.3, // Glossy paper look
+        metalness: 0.1
+    });
+
+    posterMesh = new THREE.Mesh(geometry, material);
+    posterMesh.position.set(0, 0, 0);
+    posterMesh.castShadow = true;
+    posterMesh.receiveShadow = true;
+    
+    // Add a physical frame/border
+    const frameGeo = new THREE.BoxGeometry(CONFIG.POSTER_WIDTH + 1, CONFIG.POSTER_HEIGHT + 1, 1);
+    const frameMat = new THREE.MeshStandardMaterial({ color: 0x111111 });
+    const frame = new THREE.Mesh(frameGeo, frameMat);
+    frame.position.z = -0.6; // Slightly behind
+    posterMesh.add(frame);
+
+    scene.add(posterMesh);
+}
+
+function createHiddenContent() {
+    // The Hidden QR Code
+    const canvas = document.createElement('canvas');
+    canvas.width = 256;
+    canvas.height = 256;
+    const ctx = canvas.getContext('2d');
+
+    // Pseudo-QR Pattern
+    ctx.fillStyle = "white";
+    ctx.fillRect(0, 0, 256, 256);
+    ctx.fillStyle = "black";
+    // Corners
+    ctx.fillRect(20, 20, 60, 60);
+    ctx.fillRect(176, 20, 60, 60);
+    ctx.fillRect(20, 176, 60, 60);
+    // Random noise
+    for(let i=0; i<50; i++) {
+        const x = Math.floor(Math.random() * 10) * 20 + 20;
+        const y = Math.floor(Math.random() * 10) * 20 + 20;
+        ctx.fillRect(x, y, 15, 15);
+    }
+    ctx.fillStyle = "red";
+    ctx.font = "bold 20px Arial";
+    ctx.textAlign = "center";
+    ctx.fillText("SECRET COUPON", 128, 128);
+
+    const texture = new THREE.CanvasTexture(canvas);
+    const geometry = new THREE.PlaneGeometry(CONFIG.QR_SIZE, CONFIG.QR_SIZE);
+    const material = new THREE.MeshBasicMaterial({ map: texture });
+
+    qrMesh = new THREE.Mesh(geometry, material);
+    // Position it BEHIND the poster
+    qrMesh.position.set(0, 0, CONFIG.QR_DEPTH); 
+    
+    // Add a glowing frame to make it noticeable when found
+    const frameGeo = new THREE.BoxGeometry(CONFIG.QR_SIZE + 2, CONFIG.QR_SIZE + 2, 1);
+    const frameMat = new THREE.MeshStandardMaterial({ 
+        color: 0x00ff00, 
+        emissive: 0x00ff00,
+        emissiveIntensity: 0.5 
+    });
+    const frame = new THREE.Mesh(frameGeo, frameMat);
+    frame.position.z = -1;
+    qrMesh.add(frame);
+
+    scene.add(qrMesh);
+}
+
+function createEnvironment() {
+    // Floor grid to show perspective
+    const gridHelper = new THREE.GridHelper(200, 20, 0x444444, 0x222222);
+    gridHelper.position.y = -50;
+    scene.add(gridHelper);
+
+    // Ceiling grid
+    const topGrid = new THREE.GridHelper(200, 20, 0x444444, 0x222222);
+    topGrid.position.y = 50;
+    scene.add(topGrid);
+    
+    // Particle system (cyberpunk dust)
+    const particlesGeo = new THREE.BufferGeometry();
+    const particleCount = 200;
+    const posArray = new Float32Array(particleCount * 3);
+    
+    for(let i=0; i < particleCount * 3; i++) {
+        posArray[i] = (Math.random() - 0.5) * 200;
+        // Keep particles spread out in Z depth
+        posArray[i*3 + 2] = (Math.random() - 0.5) * 100 - 20; 
+    }
+    
+    particlesGeo.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
+    const material = new THREE.PointsMaterial({
+        size: 0.5,
+        color: 0x00ffff,
+        transparent: true,
+        opacity: 0.6
+    });
+    
+    const particlesMesh = new THREE.Points(particlesGeo, material);
+    scene.add(particlesMesh);
 }
 
 function onWindowResize() {
@@ -70,68 +206,118 @@ function onWindowResize() {
     renderer.setSize(window.innerWidth, window.innerHeight);
 }
 
-// --- アニメーションループ ---
+// -----------------------------------------------------------------------------
+// 4. Communication (Socket.IO)
+// -----------------------------------------------------------------------------
+function setupSocket() {
+    const socket = io(); 
+
+    socket.on('connect', () => {
+        console.log('Connected to backend');
+        if(hudId) {
+            hudId.innerText = "CONNECTED";
+            hudId.style.color = "#00ff00";
+        }
+    });
+
+    socket.on('face_data', (data) => {
+        // data.x, data.y are normalized (-1 to 1)
+        faceData = data;
+        faceData.detected = true;
+        
+        // Update Target Camera Position with Logic:
+        // Move camera proportional to face position to create off-axis projection effect
+        targetCamPos.x = data.x * CONFIG.PARALLAX_FACTOR_X; 
+        targetCamPos.y = -data.y * CONFIG.PARALLAX_FACTOR_Y; // Invert Y
+
+        // UI Updates
+        updateHUD(data);
+    });
+
+    socket.on('face_lost', () => {
+        faceData.detected = false;
+        if(hudId) {
+            hudId.innerText = "SEARCHING...";
+            hudId.style.color = "red";
+        }
+        
+        // Return to center slowly
+        targetCamPos.x = 0;
+        targetCamPos.y = 0;
+    });
+}
+
+function updateHUD(data) {
+    if (!hudReticle) return;
+
+    // Reticle Movement (Inverted CSS translate to follow face)
+    const moveX = (data.x) * (window.innerWidth / 2);
+    const moveY = (data.y) * (window.innerHeight / 2);
+    
+    hudReticle.style.transform = `translate(${moveX}px, ${moveY}px)`;
+    
+    if(hudDist) hudDist.innerText = Math.abs(data.z).toFixed(2);
+}
+
+// -----------------------------------------------------------------------------
+// 5. Animation Loop
+// -----------------------------------------------------------------------------
 function animate() {
     requestAnimationFrame(animate);
 
-    // カメラ位置のスムージング（補間）
-    // targetX, targetY は Socket.IO から更新される
-    // 慣性をつけて滑らかに動かす
-    currentX += (targetX - currentX) * 0.1;
-    currentY += (targetY - currentY) * 0.1;
-
-    // パララックス効果の適用
-    // ユーザーが右(正)に動いたら、カメラも右(正)に動かすことで、
-    // 画面内のオブジェクトの左側面が見えるようになる（＝窓を覗き込む感覚）
-    // 係数 (Scale Factor) は調整が必要
-    camera.position.x = currentX * 5; 
-    camera.position.y = currentY * 3;
+    // Smoothing (Lerp)
+    currentCamPos.x += (targetCamPos.x - currentCamPos.x) * CONFIG.SMOOTHING;
+    currentCamPos.y += (targetCamPos.y - currentCamPos.y) * CONFIG.SMOOTHING;
     
-    // 常に中心（0,0,0）を見る
-    camera.lookAt(0, 0, 0);
+    camera.position.x = currentCamPos.x;
+    camera.position.y = currentCamPos.y;
+    camera.lookAt(0, 0, 0); // Always look at center logic
 
-    // オブジェクト自体も少し回転させるとより効果的
-    // cube.rotation.x += 0.01;
-    // cube.rotation.y += 0.01;
+    // --- Interactive Stage Logic ---
+    
+    // ③ Feel the perspective change (Ad tilts back)
+    // When you move, the ad tilts slightly away to enhance the depth feeling
+    if (posterMesh) {
+        const tiltIntensity = 0.5; // Stronger tilt
+        // Rotate the poster slightly opposite to camera movement to expose the side?
+        // Or with it? 
+        // User request: "Ad tilts back" (Recedes).
+        // Let's make it look at the user slightly but lag behind, or tilt away.
+        // Tilting away (e.g. Camera Right -> Poster Rot Y Right) exposes the Back Left corner.
+        
+        posterMesh.rotation.y = (currentCamPos.x / CONFIG.PARALLAX_FACTOR_X) * tiltIntensity;
+        // posterMesh.rotation.x = (currentCamPos.y / CONFIG.PARALLAX_FACTOR_Y) * tiltIntensity; // Disable vertical tilt
+    }
+    
+    // ④ QR Reveal Logic
+    // QR is hidden behind the poster.
+    // It only becomes visible (and active) when the viewing angle is extreme.
+    if (qrMesh) {
+        // Calculate viewing angle or just use X position threshold
+        // At Z=45, Width=64. Edge is at x=32.
+        
+        const peekThreshold = 15; // Lowered threshold for easier activation
+        const isPeeking = Math.abs(currentCamPos.x) > peekThreshold;
+        
+        // Always visible physically (occluded by poster geometry)
+        // We only change the visual effect here
+        qrMesh.visible = true; 
+
+        if (isPeeking) {
+             // Show Effect
+             qrMesh.rotation.z += 0.05;
+             // Pulse
+             const s = 1 + Math.sin(Date.now() * 0.015) * 0.2;
+             qrMesh.scale.set(s, s, s);
+        } else {
+            // Not peeking enough - just idle
+             qrMesh.rotation.z += 0.002; 
+             qrMesh.scale.set(1, 1, 1);
+        }
+    }
 
     renderer.render(scene, camera);
 }
 
-// --- Socket.IO 通信 ---
-const socket = io(SOCKET_URL, {
-    transports: ['websocket'] 
-});
-
-const statusEl = document.getElementById('status');
-const valXEl = document.getElementById('val-x');
-const valYEl = document.getElementById('val-y');
-const valZEl = document.getElementById('val-z');
-
-socket.on('connect', () => {
-    statusEl.innerHTML = "Connected";
-    statusEl.style.color = "lime";
-});
-
-socket.on('disconnect', () => {
-    statusEl.innerHTML = "Disconnected";
-    statusEl.style.color = "red";
-});
-
-socket.on('face_data', (data) => {
-    // data: {x, y, z, ...}
-    // x, y は正規化された値 (-1.0 ~ 1.0)
-    
-    // 受信した値をターゲットに設定
-    // カメラのミラーリング等を考慮して符号を反転させるか決める
-    // ここではそのまま代入し、動きが逆ならマイナスをつける
-    targetX = -data.x; // 左右反転
-    targetY = -data.y; // 上下反転（カメラ座標系による）
-
-    // デバッグ表示更新
-    valXEl.innerText = data.x.toFixed(3);
-    valYEl.innerText = data.y.toFixed(3);
-    valZEl.innerText = data.z.toFixed(3);
-});
-
-// 開始
+// Start
 init();

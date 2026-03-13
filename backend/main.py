@@ -3,9 +3,11 @@ import mediapipe as mp
 import socketio
 import uvicorn
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 import threading
 import asyncio
 import numpy as np
+import os
 
 # --- 設定 ---
 CAMERA_ID = 0  # WebカメラのID
@@ -24,9 +26,18 @@ sio = socketio.AsyncServer(async_mode='asgi', cors_allowed_origins='*')
 app = FastAPI()
 sio_app = socketio.ASGIApp(sio, app)
 
+# フロントエンドの静的ファイル配信設定
+# backend/main.py から見て ../frontend を配信する
+frontend_dir = os.path.join(os.path.dirname(__file__), '../frontend')
+if os.path.exists(frontend_dir):
+    app.mount("/view", StaticFiles(directory=frontend_dir, html=True), name="view")
+    print(f"Frontend mounted at http://localhost:8000/view/")
+else:
+    print(f"Frontend directory not found at {frontend_dir}")
+
 @app.get("/")
 async def root():
-    return {"message": "Perspective Ads Backend is running"}
+    return {"message": "Perspective Ads Backend is running. Go to /view/ to see the frontend."}
 
 @sio.event
 async def connect(sid, environ):

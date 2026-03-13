@@ -2,20 +2,115 @@ body {
     margin: 0;
     overflow: hidden;
     background-color: #000;
+    font-family: 'Rajdhani', sans-serif;
+    user-select: none;
 }
 
 #container {
     width: 100vw;
     height: 100vh;
+    display: block;
+    position: relative;
+    z-index: 1;
 }
 
-#debug-info {
+/* HUD Overlay */
+#hud-layer {
     position: absolute;
-    top: 10px;
-    left: 10px;
-    color: lime;
-    font-family: monospace;
-    background: rgba(0, 0, 0, 0.5);
-    padding: 10px;
-    pointer-events: none;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none; /* Let clicks pass through */
+    z-index: 10;
 }
+
+/* Reticle tracking the face */
+/* Note: Reticle position is updated by JS using transform: translate */
+#reticle {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 100px;
+    height: 100px;
+    border: 1px solid rgba(0, 255, 255, 0.3);
+    box-shadow: 0 0 10px rgba(0, 255, 255, 0.2);
+    /* Centering itself */
+    margin-top: -50px;
+    margin-left: -50px;
+    
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    
+    transition: transform 0.1s linear; /* Smooth movement handled by JS mainly, CSS helps */
+}
+
+/* Reticle Corners */
+.corner {
+    position: absolute;
+    width: 10px;
+    height: 10px;
+    border-color: #00ffff;
+    border-style: solid;
+}
+.tl { top: -1px; left: -1px; border-width: 2px 0 0 2px; }
+.tr { top: -1px; right: -1px; border-width: 2px 2px 0 0; }
+.bl { bottom: -1px; left: -1px; border-width: 0 0 2px 2px; }
+.br { bottom: -1px; right: -1px; border-width: 0 2px 2px 0; }
+
+.scan-bar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 2px;
+    background: rgba(0, 255, 255, 0.8);
+    box-shadow: 0 0 5px #00ffff;
+    animation: scan 1.5s infinite linear;
+}
+
+@keyframes scan {
+    0% { top: 0%; opacity: 0; }
+    30% { opacity: 1; }
+    70% { opacity: 1; }
+    100% { top: 100%; opacity: 0; }
+}
+
+.info {
+    position: absolute;
+    bottom: -40px;
+    left: 0;
+    color: #00ffff;
+    font-size: 14px;
+    font-weight: bold;
+    text-shadow: 0 0 2px #00ffff;
+    line-height: 1.2;
+    white-space: nowrap;
+}
+
+/* Center Progress Ring */
+#scan-progress {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 200px;
+    height: 200px;
+    display: none; /* Hidden by default, maybe show on lock */
+}
+
+/* Flash Effect */
+#flash-effect {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: white;
+    opacity: 0;
+    pointer-events: none;
+    z-index: 20;
+    transition: opacity 0.5s ease-out;
+}
+
