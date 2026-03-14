@@ -24,6 +24,10 @@ const CONFIG = {
     // QR Code
     QR_SIZE: 15,
     QR_DEPTH: -40, // Push it further back so it's easier to peek around the edge
+    
+    // Interaction Stages (Deadzone & Sensitivity)
+    STAGE1_DEADZONE: 0.2, // Movement below this (20% of screen) does NOTHING.
+    STAGE2_SENSITIVITY: 0.4, // In the middle range, move slowly (0.4x speed).
 };
 
 // State
@@ -225,10 +229,40 @@ function setupSocket() {
         faceData = data;
         faceData.detected = true;
         
-        // Update Target Camera Position with Logic:
-        // Move camera proportional to face position to create off-axis projection effect
-        targetCamPos.x = data.x * CONFIG.PARALLAX_FACTOR_X; 
-        targetCamPos.y = -data.y * CONFIG.PARALLAX_FACTOR_Y; // Invert Y
+        // --- Input Processing for Stages ---
+        // Apply deadzone and tiered sensitivity
+        
+        let x = data.x; // Raw input (-1 to 1)
+        let processedX = 0;
+        
+        const absX = Math.abs(x);
+        const signX = Math.sign(x);
+        
+        // Stage 1: Deadzone (Ignore small movements)
+        if (absX < CONFIG.STAGE1_DEADZONE) {
+            processedX = 0; // Stay perfectly still like a normal poster
+        } 
+        // Stage 2 & 3: Progressive Movement
+        else {
+            // Remap input range [DEADZONE, 1.0] to [0, 1.0] for smooth start
+            // processedX = (absX - DEADZONE) / (1 - DEADZONE) * signX;
+            // But we want non-linear response to feel "heavy" at first
+            
+            // Current approach:
+            // Just subtract deadzone so it starts from 0 at the edge of deadzone
+            let activeX = (absX - CONFIG.STAGE1_DEADZONE); 
+            
+            // Non-linear curve (Quadratic) to make small movements small, big movements big
+            // Square the normalized value (activeX is roughly 0.0 to 0.8)
+            // Multiplying by sign restores direction
+            
+            // Simple ease-in
+            processedX = (activeX * activeX) * 2.5 * signX; 
+        }
+
+        // Apply Parallax
+        targetCamPos.x = processedX * CONFIG.PARALLAX_FACTOR_X; 
+        targetCamPos.y = 0; // Disable vertical as requested
 
         // UI Updates
         updateHUD(data);
@@ -296,22 +330,21 @@ function animate() {
         // Calculate viewing angle or just use X position threshold
         // At Z=45, Width=64. Edge is at x=32.
         
-        const peekThreshold = 15; // Lowered threshold for easier activation
+        const peekThreshold = 40; // Harder to trigger (Stage 3 only)
         const isPeeking = Math.abs(currentCamPos.x) > peekThreshold;
         
         // Always visible physically (occluded by poster geometry)
-        // We only change the visual effect here
         qrMesh.visible = true; 
 
         if (isPeeking) {
-             // Show Effect
-             qrMesh.rotation.z += 0.05;
-             // Pulse
-             const s = 1 + Math.sin(Date.now() * 0.015) * 0.2;
-             qrMesh.scale.set(s, s, s);
+             // STAGE 3: Scanning Mode
+             // Stop random rotation and face the user directly for readability!
+             qrMesh.lookAt(camera.position);
+             qrMesh.scale.set(1.2, 1.2, 1.2);
         } else {
-            // Not peeking enough - just idle
-             qrMesh.rotation.z += 0.002; 
+            // STAGE 2: Teasing Mode
+            // Reset to flat and spin slowly Z-axis to catch attention
+             qrMesh.rotation.set(0, 0, Date.now() * 0.002); 
              qrMesh.scale.set(1, 1, 1);
         }
     }
