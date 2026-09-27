@@ -164,19 +164,43 @@ function createAdScene() {
 
     createReward(textureLoader);
 
-    // 空間の奥行きを認識しやすくする控えめなフレーム。
-    const frameGeometry = new THREE.BoxGeometry(
-        CONFIG.SCREEN_WIDTH_WORLD + 2,
-        CONFIG.SCREEN_HEIGHT_WORLD + 2,
-        1
-    );
+    // スクリーン外周だけに細いフレームを置く。
+    // 画面全面を覆う板を置くと奥の広告空間が見えなくなるため、4本のバーで構成する。
     const frameMaterial = new THREE.MeshStandardMaterial({
         color: 0x181818,
         roughness: 0.4,
     });
-    const frame = new THREE.Mesh(frameGeometry, frameMaterial);
-    frame.position.set(0, 0, -1.2);
-    scene.add(frame);
+    const frameThickness = 1.2;
+    const frameDepth = 1.0;
+    const halfWidth = CONFIG.SCREEN_WIDTH_WORLD / 2;
+    const halfHeight = CONFIG.SCREEN_HEIGHT_WORLD / 2;
+
+    const horizontalGeometry = new THREE.BoxGeometry(
+        CONFIG.SCREEN_WIDTH_WORLD + frameThickness * 2,
+        frameThickness,
+        frameDepth
+    );
+    const verticalGeometry = new THREE.BoxGeometry(
+        frameThickness,
+        CONFIG.SCREEN_HEIGHT_WORLD,
+        frameDepth
+    );
+
+    const topFrame = new THREE.Mesh(horizontalGeometry, frameMaterial);
+    topFrame.position.set(0, halfHeight + frameThickness / 2, -0.8);
+    scene.add(topFrame);
+
+    const bottomFrame = new THREE.Mesh(horizontalGeometry, frameMaterial);
+    bottomFrame.position.set(0, -halfHeight - frameThickness / 2, -0.8);
+    scene.add(bottomFrame);
+
+    const leftFrame = new THREE.Mesh(verticalGeometry, frameMaterial);
+    leftFrame.position.set(-halfWidth - frameThickness / 2, 0, -0.8);
+    scene.add(leftFrame);
+
+    const rightFrame = new THREE.Mesh(verticalGeometry, frameMaterial);
+    rightFrame.position.set(halfWidth + frameThickness / 2, 0, -0.8);
+    scene.add(rightFrame);
 }
 
 function createReward(textureLoader) {
