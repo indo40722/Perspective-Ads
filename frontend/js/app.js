@@ -1,5 +1,5 @@
 // Perspective Ads - Geekten 2026 prototype
-// 画面を「窓」として扱うOff-Axis Projection + 報酬探索UX。
+// 画面を「窓」として扱うOff-Axis Projection + 広告内レイヤー探索UX。
 
 const CONFIG = {
     SCREEN_WIDTH_WORLD: 64,
@@ -24,33 +24,41 @@ const CONFIG = {
     SMOOTHING: 0.16,
     INPUT_DEADZONE: 0.025,
 
-    // この距離だけ左右に動いたら「発見」とする。
-    PEEK_THRESHOLD_CM: 12,
+    // 左右へこの程度動けば「報酬発見」。
+    PEEK_THRESHOLD_CM: 11,
 
-    // 広告空間
+    // 背景広告
     BACKDROP_Z: -55,
     BACKDROP_SCALE: 1.72,
 
-    // 手前の「広告カード」。以前の巨大な箱をやめ、小さな平面にする。
-    OCCLUDER_X: 10,
-    OCCLUDER_Y: 0,
-    OCCLUDER_Z: -12,
-    OCCLUDER_WIDTH: 10,
-    OCCLUDER_HEIGHT: 14,
+    // バーガー前景レイヤー。
+    // poster.png上のバーガー周辺を切り出し、楕円マスクして手前へ置く。
+    FOREGROUND_X: -9.5,
+    FOREGROUND_Y: -1.5,
+    FOREGROUND_Z: -12,
+    FOREGROUND_WIDTH: 24,
+    FOREGROUND_HEIGHT: 17.5,
 
-    // 奥に隠すのはQRそのものではなく「報酬カード」。
-    REWARD_X: 13.6,
-    REWARD_Y: 0,
-    REWARD_Z: -27,
-    REWARD_WIDTH: 8,
-    REWARD_HEIGHT: 5.8,
+    // 切り出し領域（画像サイズに対する比率 / 左上基準）
+    BURGER_CROP_X: 0.245,
+    BURGER_CROP_Y: 0.31,
+    BURGER_CROP_W: 0.31,
+    BURGER_CROP_H: 0.43,
+
+    // バーガーの奥に隠すクーポンカード
+    REWARD_X: -4,
+    REWARD_Y: -1.0,
+    REWARD_Z: -28,
+    REWARD_WIDTH: 9.5,
+    REWARD_HEIGHT: 6.2,
 };
 
 let scene;
 let camera;
 let renderer;
 let backdropMesh;
-let occluderMesh;
+let foregroundBurgerMesh;
+let foregroundShadowMesh;
 let rewardMesh;
 
 let faceDetected = false;
@@ -111,15 +119,15 @@ function init() {
     animate();
 
     if (projectionModeEl) {
-        projectionModeEl.textContent = 'OFF-AXIS / FIXED-Z';
+        projectionModeEl.textContent = 'OFF-AXIS / LAYERED AD';
     }
 }
 
 function createLights() {
-    const ambientLight = new THREE.AmbientLight(0xffffff, 1.1);
+    const ambientLight = new THREE.AmbientLight(0xffffff, 1.0);
     scene.add(ambientLight);
 
-    const keyLight = new THREE.DirectionalLight(0xffffff, 0.9);
+    const keyLight = new THREE.DirectionalLight(0xffffff, 0.8);
     keyLight.position.set(20, 30, 40);
     scene.add(keyLight);
 }
@@ -127,8 +135,16 @@ function createLights() {
 function createAdScene() {
     const textureLoader = new THREE.TextureLoader();
 
-    // 広告背景は画面全体を埋める。
-    const posterTexture = textureLoader.load('assets/poster.png');
+    const posterTexture = textureLoader.load(
+        'assets/poster.png',
+        (texture) => {
+            // 背景と同じ元画像からバーガー部分を切り出すので、
+            // 正面では元画像とほぼ重なって見える。
+            createForegroundBurger(texture);
+        }
+    );
+
+    // 背景広告は画面全体を埋める。
     const backdropGeometry = new THREE.PlaneGeometry(
         CONFIG.SCREEN_WIDTH_WORLD * CONFIG.BACKDROP_SCALE,
         CONFIG.SCREEN_HEIGHT_WORLD * CONFIG.BACKDROP_SCALE
@@ -142,36 +158,133 @@ function createAdScene() {
     backdropMesh.position.set(0, 0, CONFIG.BACKDROP_Z);
     scene.add(backdropMesh);
 
-    // 巨大な3D箱は見た目を壊すため廃止。
-    // 広告の一部に見える小さなカードを手前に置き、その裏に報酬を隠す。
-    const occluderGeometry = new THREE.PlaneGeometry(
-        CONFIG.OCCLUDER_WIDTH,
-        CONFIG.OCCLUDER_HEIGHT
+    createHiddenReward();
+}
+
+function createForegroundBurger(posterTexture) {
+    const image = posterTexture.image;
+
+    if (!image || !image.width || !image.height) {
+        console.warn('poster.png is not ready for foreground extraction.');
+        return;
+    }
+
+    const cropX = Math.round(image.width * CONFIG.BURGER_CROP_X);
+    const cropY = Math.round(image.height * CONFIG.BURGER_CROP_Y);
+    const cropW = Math.round(image.width * CONFIG.BURGER_CROP_W);
+    const cropH = Math.round(image.height * CONFIG.BURGER_CROP_H);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = 1024;
+    canvas.height = 768;
+
+    const ctx = canvas.getContext('2d');
+
+    // 少し横長の楕円でバーガー周辺だけを前景化する。
+    // 完全な切り抜きではなく「前景レイヤーのPoC」として自然な範囲を残す。
+    ctx.save();
+    ctx.beginPath();
+    ctx.ellipse(
+        canvas.width * 0.50,
+        canvas.height * 0.52,
+        canvas.width * 0.48,
+        canvas.height * 0.42,
+        -0.04,
+        0,
+        Math.PI * 2
     );
-    const occluderMaterial = new THREE.MeshBasicMaterial({
-        map: createAdCardTexture(),
+    ctx.clip();
+
+    ctx.drawImage(
+        image,
+        cropX,
+        cropY,
+        cropW,
+        cropH,
+        0,
+        0,
+        canvas.width,
+        canvas.height
+    );
+    ctx.restore();
+
+    // エッジを少し暗くして矩形の切り抜き感を弱める。
+    const edge = ctx.createRadialGradient(
+        canvas.width * 0.5,
+        canvas.height * 0.5,
+        canvas.width * 0.20,
+        canvas.width * 0.5,
+        canvas.height * 0.5,
+        canvas.width * 0.58
+    );
+    edge.addColorStop(0, 'rgba(255,255,255,1)');
+    edge.addColorStop(0.78, 'rgba(255,255,255,1)');
+    edge.addColorStop(1, 'rgba(255,255,255,0)');
+
+    ctx.globalCompositeOperation = 'destination-in';
+    ctx.fillStyle = edge;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.globalCompositeOperation = 'source-over';
+
+    const burgerTexture = new THREE.CanvasTexture(canvas);
+    burgerTexture.minFilter = THREE.LinearFilter;
+    burgerTexture.magFilter = THREE.LinearFilter;
+
+    const geometry = new THREE.PlaneGeometry(
+        CONFIG.FOREGROUND_WIDTH,
+        CONFIG.FOREGROUND_HEIGHT
+    );
+
+    const material = new THREE.MeshBasicMaterial({
+        map: burgerTexture,
+        transparent: true,
+        alphaTest: 0.02,
         side: THREE.DoubleSide,
+        depthWrite: true,
     });
 
-    occluderMesh = new THREE.Mesh(occluderGeometry, occluderMaterial);
-    occluderMesh.position.set(
-        CONFIG.OCCLUDER_X,
-        CONFIG.OCCLUDER_Y,
-        CONFIG.OCCLUDER_Z
+    foregroundBurgerMesh = new THREE.Mesh(geometry, material);
+    foregroundBurgerMesh.position.set(
+        CONFIG.FOREGROUND_X,
+        CONFIG.FOREGROUND_Y,
+        CONFIG.FOREGROUND_Z
     );
-    scene.add(occluderMesh);
+    scene.add(foregroundBurgerMesh);
 
-    const rewardGeometry = new THREE.PlaneGeometry(
+    // バーガーの裏側にごく薄い影を入れて、広告内のレイヤー感を出す。
+    const shadowGeometry = new THREE.PlaneGeometry(
+        CONFIG.FOREGROUND_WIDTH * 0.90,
+        CONFIG.FOREGROUND_HEIGHT * 0.84
+    );
+    const shadowMaterial = new THREE.MeshBasicMaterial({
+        color: 0x000000,
+        transparent: true,
+        opacity: 0.20,
+        depthWrite: false,
+    });
+
+    foregroundShadowMesh = new THREE.Mesh(shadowGeometry, shadowMaterial);
+    foregroundShadowMesh.position.set(
+        CONFIG.FOREGROUND_X + 0.5,
+        CONFIG.FOREGROUND_Y - 0.3,
+        CONFIG.FOREGROUND_Z - 0.8
+    );
+    scene.add(foregroundShadowMesh);
+}
+
+function createHiddenReward() {
+    const geometry = new THREE.PlaneGeometry(
         CONFIG.REWARD_WIDTH,
         CONFIG.REWARD_HEIGHT
     );
-    const rewardMaterial = new THREE.MeshBasicMaterial({
+
+    const material = new THREE.MeshBasicMaterial({
         map: createHiddenRewardTexture(),
         side: THREE.DoubleSide,
         transparent: true,
     });
 
-    rewardMesh = new THREE.Mesh(rewardGeometry, rewardMaterial);
+    rewardMesh = new THREE.Mesh(geometry, material);
     rewardMesh.position.set(
         CONFIG.REWARD_X,
         CONFIG.REWARD_Y,
@@ -180,75 +293,33 @@ function createAdScene() {
     scene.add(rewardMesh);
 }
 
-function createAdCardTexture() {
-    const canvas = document.createElement('canvas');
-    canvas.width = 720;
-    canvas.height = 1000;
-
-    const ctx = canvas.getContext('2d');
-
-    const gradient = ctx.createLinearGradient(0, 0, 720, 1000);
-    gradient.addColorStop(0, '#10233f');
-    gradient.addColorStop(1, '#08111f');
-    ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    ctx.strokeStyle = '#56e0ff';
-    ctx.lineWidth = 12;
-    ctx.strokeRect(28, 28, canvas.width - 56, canvas.height - 56);
-
-    ctx.fillStyle = '#ffffff';
-    ctx.textAlign = 'left';
-    ctx.font = '700 74px Arial';
-    ctx.fillText('SIGNATURE', 70, 150);
-    ctx.fillText('BURGER', 70, 235);
-
-    ctx.fillStyle = '#56e0ff';
-    ctx.font = '700 34px Arial';
-    ctx.fillText('TODAY’S PICK', 72, 315);
-
-    ctx.fillStyle = 'rgba(255,255,255,0.78)';
-    ctx.font = '34px Arial';
-    ctx.fillText('Fresh. Bold. Made for you.', 72, 410);
-
-    ctx.fillStyle = '#ffffff';
-    ctx.font = '700 118px Arial';
-    ctx.fillText('¥690', 68, 610);
-
-    ctx.fillStyle = '#56e0ff';
-    ctx.fillRect(70, 735, 580, 100);
-
-    ctx.fillStyle = '#08111f';
-    ctx.font = '700 34px Arial';
-    ctx.textAlign = 'center';
-    ctx.fillText('LIMITED MENU', 360, 800);
-
-    return new THREE.CanvasTexture(canvas);
-}
-
 function createHiddenRewardTexture() {
     const canvas = document.createElement('canvas');
     canvas.width = 900;
-    canvas.height = 640;
+    canvas.height = 600;
 
     const ctx = canvas.getContext('2d');
 
-    const gradient = ctx.createLinearGradient(0, 0, 900, 640);
-    gradient.addColorStop(0, '#f8ff70');
-    gradient.addColorStop(1, '#36ffd1');
+    const gradient = ctx.createLinearGradient(0, 0, 900, 600);
+    gradient.addColorStop(0, '#ffe95c');
+    gradient.addColorStop(1, '#38ffd2');
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    ctx.fillStyle = '#08111f';
+    ctx.strokeStyle = '#071321';
+    ctx.lineWidth = 22;
+    ctx.strokeRect(12, 12, canvas.width - 24, canvas.height - 24);
+
+    ctx.fillStyle = '#071321';
     ctx.textAlign = 'center';
-    ctx.font = '700 60px Arial';
-    ctx.fillText('SECRET COUPON', 450, 150);
+    ctx.font = '800 58px Arial';
+    ctx.fillText('SECRET COUPON', 450, 130);
 
     ctx.font = '900 150px Arial';
-    ctx.fillText('20% OFF', 450, 360);
+    ctx.fillText('20% OFF', 450, 335);
 
-    ctx.font = '700 36px Arial';
-    ctx.fillText('YOU FOUND IT!', 450, 485);
+    ctx.font = '800 34px Arial';
+    ctx.fillText('PEEK FOUND!', 450, 465);
 
     return new THREE.CanvasTexture(canvas);
 }
@@ -348,16 +419,25 @@ function updateRewardPresentation() {
         return;
     }
 
-    // 奥のカードもユーザー側を向かせて読みやすくする。
     rewardMesh.lookAt(camera.position);
+
+    // 正面ではバーガー前景の裏に隠れ、身体を横へ動かすと端から見える。
+    const peekProgress = Math.min(
+        1,
+        Math.abs(currentViewerCm.x) / CONFIG.PEEK_THRESHOLD_CM
+    );
+
+    const targetScale = 1 + peekProgress * 0.08;
+    const nextScale = lerp(rewardMesh.scale.x, targetScale, 0.12);
+    rewardMesh.scale.set(nextScale, nextScale, nextScale);
 
     const isPeeking =
         faceDetected &&
         Math.abs(currentViewerCm.x) >= CONFIG.PEEK_THRESHOLD_CM;
 
-    const targetScale = isPeeking ? 1.08 : 1.0;
-    const nextScale = lerp(rewardMesh.scale.x, targetScale, 0.12);
-    rewardMesh.scale.set(nextScale, nextScale, nextScale);
+    if (peekHintEl && !rewardUnlocked) {
+        peekHintEl.style.opacity = String(Math.max(0.25, 1 - peekProgress * 0.55));
+    }
 
     if (isPeeking && !rewardUnlocked) {
         unlockReward();
@@ -381,6 +461,7 @@ function resetReward() {
 
     if (peekHintEl) {
         peekHintEl.classList.remove('is-hidden');
+        peekHintEl.style.opacity = '';
     }
 
     if (rewardOverlayEl) {
@@ -428,7 +509,7 @@ function updateDebugInfo() {
     if (!faceDetected && projectionModeEl) {
         projectionModeEl.textContent = 'OFF-AXIS / RETURNING';
     } else if (projectionModeEl) {
-        projectionModeEl.textContent = 'OFF-AXIS / FIXED-Z';
+        projectionModeEl.textContent = 'OFF-AXIS / LAYERED AD';
     }
 }
 
