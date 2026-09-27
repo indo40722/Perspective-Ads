@@ -1,50 +1,49 @@
 // Perspective Ads - Geekten 2026 prototype
-// 視点位置に基づくOff-Axis Projectionの初期実装。
+// 画面を「窓」として扱うOff-Axis Projection + 報酬探索UX。
 
 const CONFIG = {
-    // 仮想スクリーン（Three.jsワールド座標）
     SCREEN_WIDTH_WORLD: 64,
     SCREEN_HEIGHT_WORLD: 36,
 
-    // 実ディスプレイの概算寸法(cm)
-    // 使用するモニターに合わせてキャリブレーションする。
+    // 実ディスプレイの概算寸法(cm)。最終的には実機に合わせてキャリブレーションする。
     SCREEN_WIDTH_CM: 53.1,
     SCREEN_HEIGHT_CM: 29.9,
-
-    // 現段階ではZ実距離を推定していないため固定距離で扱う。
     VIEWER_DISTANCE_CM: 60,
 
-    // 一般的なWebカメラを仮定した概算FOV。
     CAMERA_HFOV_DEG: 60,
     CAMERA_VFOV_DEG: 45,
 
     TRACKING_GAIN_X: 1.0,
-    TRACKING_GAIN_Y: 0.75,
+    TRACKING_GAIN_Y: 0.6,
     MAX_VIEWER_X_CM: 40,
-    MAX_VIEWER_Y_CM: 25,
+    MAX_VIEWER_Y_CM: 20,
 
     NEAR: 0.1,
     FAR: 1000,
 
-    // 顔座標の簡易平滑化。
     SMOOTHING: 0.16,
     INPUT_DEADZONE: 0.025,
 
-    // 報酬発見の目安。実際の見え方は3D遮蔽で決まる。
-    PEEK_THRESHOLD_CM: 18,
+    // この距離だけ左右に動いたら「発見」とする。
+    PEEK_THRESHOLD_CM: 12,
 
-    // 仮想広告空間
+    // 広告空間
     BACKDROP_Z: -55,
     BACKDROP_SCALE: 1.72,
-    OCCLUDER_X: 4,
-    OCCLUDER_Z: -16,
-    OCCLUDER_WIDTH: 26,
-    OCCLUDER_HEIGHT: 28,
-    OCCLUDER_DEPTH: 8,
-    QR_X: 18,
-    QR_Y: 0,
-    QR_Z: -30,
-    QR_SIZE: 10,
+
+    // 手前の「広告カード」。以前の巨大な箱をやめ、小さな平面にする。
+    OCCLUDER_X: 10,
+    OCCLUDER_Y: 0,
+    OCCLUDER_Z: -12,
+    OCCLUDER_WIDTH: 10,
+    OCCLUDER_HEIGHT: 14,
+
+    // 奥に隠すのはQRそのものではなく「報酬カード」。
+    REWARD_X: 13.6,
+    REWARD_Y: 0,
+    REWARD_Z: -27,
+    REWARD_WIDTH: 8,
+    REWARD_HEIGHT: 5.8,
 };
 
 let scene;
@@ -52,9 +51,10 @@ let camera;
 let renderer;
 let backdropMesh;
 let occluderMesh;
-let qrMesh;
+let rewardMesh;
 
 let faceDetected = false;
+let rewardUnlocked = false;
 let targetViewerCm = { x: 0, y: 0, z: CONFIG.VIEWER_DISTANCE_CM };
 let currentViewerCm = { x: 0, y: 0, z: CONFIG.VIEWER_DISTANCE_CM };
 
@@ -63,6 +63,9 @@ const valueXEl = document.getElementById('val-x');
 const valueYEl = document.getElementById('val-y');
 const valueZEl = document.getElementById('val-z');
 const projectionModeEl = document.getElementById('projection-mode');
+const debugInfoEl = document.getElementById('debug-info');
+const peekHintEl = document.getElementById('peek-hint');
+const rewardOverlayEl = document.getElementById('reward-overlay');
 
 const clampDeadzone = (value, deadzone) => {
     if (Math.abs(value) < deadzone) {
@@ -79,7 +82,7 @@ function init() {
     }
 
     scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x050505);
+    scene.background = new THREE.Color(0x000000);
 
     camera = new THREE.PerspectiveCamera(
         60,
@@ -102,6 +105,7 @@ function init() {
     createAdScene();
 
     window.addEventListener('resize', onWindowResize);
+    window.addEventListener('keydown', onKeyDown);
 
     setupSocket();
     animate();
@@ -112,24 +116,18 @@ function init() {
 }
 
 function createLights() {
-    const ambientLight = new THREE.AmbientLight(0xffffff, 1.2);
+    const ambientLight = new THREE.AmbientLight(0xffffff, 1.1);
     scene.add(ambientLight);
 
-    const keyLight = new THREE.DirectionalLight(0xffffff, 1.0);
+    const keyLight = new THREE.DirectionalLight(0xffffff, 0.9);
     keyLight.position.set(20, 30, 40);
-    keyLight.castShadow = true;
     scene.add(keyLight);
-
-    const accentLight = new THREE.PointLight(0x55aaff, 0.8, 180);
-    accentLight.position.set(-25, 18, 15);
-    scene.add(accentLight);
 }
 
 function createAdScene() {
     const textureLoader = new THREE.TextureLoader();
 
-    // スクリーンそのものは描画物ではなく「窓」として扱う。
-    // 広告画像は画面奥に配置し、頭を動かしたときに空間の奥行きが見えるようにする。
+    // 広告背景は画面全体を埋める。
     const posterTexture = textureLoader.load('assets/poster.png');
     const backdropGeometry = new THREE.PlaneGeometry(
         CONFIG.SCREEN_WIDTH_WORLD * CONFIG.BACKDROP_SCALE,
@@ -144,128 +142,113 @@ function createAdScene() {
     backdropMesh.position.set(0, 0, CONFIG.BACKDROP_Z);
     scene.add(backdropMesh);
 
-    // 手前の遮蔽物。正面ではこの裏にある報酬を見えなくする。
-    const occluderGeometry = new THREE.BoxGeometry(
+    // 巨大な3D箱は見た目を壊すため廃止。
+    // 広告の一部に見える小さなカードを手前に置き、その裏に報酬を隠す。
+    const occluderGeometry = new THREE.PlaneGeometry(
         CONFIG.OCCLUDER_WIDTH,
-        CONFIG.OCCLUDER_HEIGHT,
-        CONFIG.OCCLUDER_DEPTH
+        CONFIG.OCCLUDER_HEIGHT
     );
-    const occluderMaterial = new THREE.MeshStandardMaterial({
-        color: 0x11151c,
-        roughness: 0.5,
-        metalness: 0.15,
-    });
-
-    occluderMesh = new THREE.Mesh(occluderGeometry, occluderMaterial);
-    occluderMesh.position.set(CONFIG.OCCLUDER_X, 0, CONFIG.OCCLUDER_Z);
-    occluderMesh.castShadow = true;
-    occluderMesh.receiveShadow = true;
-    scene.add(occluderMesh);
-
-    createReward(textureLoader);
-
-    // スクリーン外周だけに細いフレームを置く。
-    // 画面全面を覆う板を置くと奥の広告空間が見えなくなるため、4本のバーで構成する。
-    const frameMaterial = new THREE.MeshStandardMaterial({
-        color: 0x181818,
-        roughness: 0.4,
-    });
-    const frameThickness = 1.2;
-    const frameDepth = 1.0;
-    const halfWidth = CONFIG.SCREEN_WIDTH_WORLD / 2;
-    const halfHeight = CONFIG.SCREEN_HEIGHT_WORLD / 2;
-
-    const horizontalGeometry = new THREE.BoxGeometry(
-        CONFIG.SCREEN_WIDTH_WORLD + frameThickness * 2,
-        frameThickness,
-        frameDepth
-    );
-    const verticalGeometry = new THREE.BoxGeometry(
-        frameThickness,
-        CONFIG.SCREEN_HEIGHT_WORLD,
-        frameDepth
-    );
-
-    const topFrame = new THREE.Mesh(horizontalGeometry, frameMaterial);
-    topFrame.position.set(0, halfHeight + frameThickness / 2, -0.8);
-    scene.add(topFrame);
-
-    const bottomFrame = new THREE.Mesh(horizontalGeometry, frameMaterial);
-    bottomFrame.position.set(0, -halfHeight - frameThickness / 2, -0.8);
-    scene.add(bottomFrame);
-
-    const leftFrame = new THREE.Mesh(verticalGeometry, frameMaterial);
-    leftFrame.position.set(-halfWidth - frameThickness / 2, 0, -0.8);
-    scene.add(leftFrame);
-
-    const rightFrame = new THREE.Mesh(verticalGeometry, frameMaterial);
-    rightFrame.position.set(halfWidth + frameThickness / 2, 0, -0.8);
-    scene.add(rightFrame);
-}
-
-function createReward(textureLoader) {
-    const geometry = new THREE.PlaneGeometry(CONFIG.QR_SIZE, CONFIG.QR_SIZE);
-
-    const material = new THREE.MeshBasicMaterial({
-        color: 0xffffff,
+    const occluderMaterial = new THREE.MeshBasicMaterial({
+        map: createAdCardTexture(),
         side: THREE.DoubleSide,
     });
 
-    qrMesh = new THREE.Mesh(geometry, material);
-    qrMesh.position.set(CONFIG.QR_X, CONFIG.QR_Y, CONFIG.QR_Z);
-    scene.add(qrMesh);
-
-    textureLoader.load(
-        'assets/qr.png',
-        (texture) => {
-            qrMesh.material.map = texture;
-            qrMesh.material.needsUpdate = true;
-        },
-        undefined,
-        () => {
-            // qr.pngが読めない場合でもPoCを止めないためのフォールバック。
-            qrMesh.material.map = createFallbackCouponTexture();
-            qrMesh.material.needsUpdate = true;
-        }
+    occluderMesh = new THREE.Mesh(occluderGeometry, occluderMaterial);
+    occluderMesh.position.set(
+        CONFIG.OCCLUDER_X,
+        CONFIG.OCCLUDER_Y,
+        CONFIG.OCCLUDER_Z
     );
+    scene.add(occluderMesh);
 
-    const glowGeometry = new THREE.BoxGeometry(
-        CONFIG.QR_SIZE + 1.2,
-        CONFIG.QR_SIZE + 1.2,
-        0.8
+    const rewardGeometry = new THREE.PlaneGeometry(
+        CONFIG.REWARD_WIDTH,
+        CONFIG.REWARD_HEIGHT
     );
-    const glowMaterial = new THREE.MeshStandardMaterial({
-        color: 0x00c853,
-        emissive: 0x006b2b,
-        emissiveIntensity: 0.8,
-        roughness: 0.4,
+    const rewardMaterial = new THREE.MeshBasicMaterial({
+        map: createHiddenRewardTexture(),
+        side: THREE.DoubleSide,
+        transparent: true,
     });
-    const glow = new THREE.Mesh(glowGeometry, glowMaterial);
-    glow.position.z = -0.6;
-    qrMesh.add(glow);
+
+    rewardMesh = new THREE.Mesh(rewardGeometry, rewardMaterial);
+    rewardMesh.position.set(
+        CONFIG.REWARD_X,
+        CONFIG.REWARD_Y,
+        CONFIG.REWARD_Z
+    );
+    scene.add(rewardMesh);
 }
 
-function createFallbackCouponTexture() {
+function createAdCardTexture() {
     const canvas = document.createElement('canvas');
-    canvas.width = 512;
-    canvas.height = 512;
+    canvas.width = 720;
+    canvas.height = 1000;
 
     const ctx = canvas.getContext('2d');
-    ctx.fillStyle = '#ffffff';
+
+    const gradient = ctx.createLinearGradient(0, 0, 720, 1000);
+    gradient.addColorStop(0, '#10233f');
+    gradient.addColorStop(1, '#08111f');
+    ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    ctx.fillStyle = '#101010';
-    ctx.font = 'bold 48px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('SECRET', 256, 210);
-    ctx.fillText('COUPON', 256, 280);
-
-    ctx.fillStyle = '#00a844';
-    ctx.fillRect(110, 330, 292, 70);
+    ctx.strokeStyle = '#56e0ff';
+    ctx.lineWidth = 12;
+    ctx.strokeRect(28, 28, canvas.width - 56, canvas.height - 56);
 
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 30px sans-serif';
-    ctx.fillText('FOUND!', 256, 376);
+    ctx.textAlign = 'left';
+    ctx.font = '700 74px Arial';
+    ctx.fillText('SIGNATURE', 70, 150);
+    ctx.fillText('BURGER', 70, 235);
+
+    ctx.fillStyle = '#56e0ff';
+    ctx.font = '700 34px Arial';
+    ctx.fillText('TODAY’S PICK', 72, 315);
+
+    ctx.fillStyle = 'rgba(255,255,255,0.78)';
+    ctx.font = '34px Arial';
+    ctx.fillText('Fresh. Bold. Made for you.', 72, 410);
+
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '700 118px Arial';
+    ctx.fillText('¥690', 68, 610);
+
+    ctx.fillStyle = '#56e0ff';
+    ctx.fillRect(70, 735, 580, 100);
+
+    ctx.fillStyle = '#08111f';
+    ctx.font = '700 34px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('LIMITED MENU', 360, 800);
+
+    return new THREE.CanvasTexture(canvas);
+}
+
+function createHiddenRewardTexture() {
+    const canvas = document.createElement('canvas');
+    canvas.width = 900;
+    canvas.height = 640;
+
+    const ctx = canvas.getContext('2d');
+
+    const gradient = ctx.createLinearGradient(0, 0, 900, 640);
+    gradient.addColorStop(0, '#f8ff70');
+    gradient.addColorStop(1, '#36ffd1');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.fillStyle = '#08111f';
+    ctx.textAlign = 'center';
+    ctx.font = '700 60px Arial';
+    ctx.fillText('SECRET COUPON', 450, 150);
+
+    ctx.font = '900 150px Arial';
+    ctx.fillText('20% OFF', 450, 360);
+
+    ctx.font = '700 36px Arial';
+    ctx.fillText('YOU FOUND IT!', 450, 485);
 
     return new THREE.CanvasTexture(canvas);
 }
@@ -361,17 +344,74 @@ function updateViewer() {
 }
 
 function updateRewardPresentation() {
-    if (!qrMesh) {
+    if (!rewardMesh) {
         return;
     }
 
-    // QRは空間内のビルボードとしてユーザー側を向く。
-    qrMesh.lookAt(camera.position);
+    // 奥のカードもユーザー側を向かせて読みやすくする。
+    rewardMesh.lookAt(camera.position);
 
-    const isPeeking = Math.abs(currentViewerCm.x) >= CONFIG.PEEK_THRESHOLD_CM;
+    const isPeeking =
+        faceDetected &&
+        Math.abs(currentViewerCm.x) >= CONFIG.PEEK_THRESHOLD_CM;
+
     const targetScale = isPeeking ? 1.08 : 1.0;
-    const nextScale = lerp(qrMesh.scale.x, targetScale, 0.12);
-    qrMesh.scale.set(nextScale, nextScale, nextScale);
+    const nextScale = lerp(rewardMesh.scale.x, targetScale, 0.12);
+    rewardMesh.scale.set(nextScale, nextScale, nextScale);
+
+    if (isPeeking && !rewardUnlocked) {
+        unlockReward();
+    }
+}
+
+function unlockReward() {
+    rewardUnlocked = true;
+
+    if (peekHintEl) {
+        peekHintEl.classList.add('is-hidden');
+    }
+
+    if (rewardOverlayEl) {
+        rewardOverlayEl.classList.add('is-visible');
+    }
+}
+
+function resetReward() {
+    rewardUnlocked = false;
+
+    if (peekHintEl) {
+        peekHintEl.classList.remove('is-hidden');
+    }
+
+    if (rewardOverlayEl) {
+        rewardOverlayEl.classList.remove('is-visible');
+    }
+}
+
+async function toggleFullscreen() {
+    try {
+        if (!document.fullscreenElement) {
+            await document.documentElement.requestFullscreen();
+        } else {
+            await document.exitFullscreen();
+        }
+    } catch (error) {
+        console.warn('Fullscreen request failed:', error);
+    }
+}
+
+function onKeyDown(event) {
+    if (event.key === 'f' || event.key === 'F') {
+        toggleFullscreen();
+    }
+
+    if (event.key === 'd' || event.key === 'D') {
+        debugInfoEl?.classList.toggle('is-hidden');
+    }
+
+    if (event.key === 'r' || event.key === 'R') {
+        resetReward();
+    }
 }
 
 function updateDebugInfo() {
@@ -393,8 +433,6 @@ function updateDebugInfo() {
 }
 
 function onWindowResize() {
-    // Off-Axis Projectionではaspectから射影を作らず、
-    // 毎フレーム実スクリーン寸法からprojection matrixを再計算する。
     renderer.setSize(window.innerWidth, window.innerHeight);
 }
 
