@@ -114,3 +114,31 @@ body {
     transition: opacity 0.5s ease-out;
 }
 
+
+
+/* Geekten 2026 debug overlay */
+#debug-info {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    z-index: 30;
+    min-width: 190px;
+    padding: 10px 12px;
+    color: #eaf7ff;
+    background: rgba(0, 0, 0, 0.62);
+    border: 1px solid rgba(120, 210, 255, 0.35);
+    border-radius: 8px;
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 12px;
+    line-height: 1.35;
+    pointer-events: none;
+}
+
+#debug-info p {
+    margin: 2px 0;
+}
+
+#status,
+#projection-mode {
+    font-weight: 700;
+}
