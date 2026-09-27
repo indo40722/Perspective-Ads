@@ -1,39 +1,122 @@
-# Perspective Ads Project
+# Perspective Ads
 
-## 戦略コンセプト：A+B ハイブリッド（Ordinary Ad comes alive）
-本プロジェクトは、以下の2つのアプローチを統合した「ハイブリッド型」の体験を提供します。
+「広告を見る」を「広告の中を探す」に変える、視点連動型デジタルサイネージのプロトタイプです。
 
-1.  **通常時（Poster Mode / Plan B）**:
-    *   一見すると普通の2Dポスターやサイネージ広告。
-    *   既存の広告素材（画像データ等）をそのまま活用可能で、広告主への導入ハードルを下げる。
-2.  **体験時（3D Mode / Plan A）**:
-    *   ユーザーが近づいたり覗き込んだりすると、奥行きが生まれ3D空間化する。
-    *   更に角度を変えると、障害物の裏に隠された「クーポン」や「特典」を発見できる。
+Webカメラで1人の顔位置を取得し、その左右移動に合わせてThree.js上の3Dシーンの見え方を変化させます。正面からはポスターに隠れて見えない報酬を、身体を左右に動かして「覗く」ことで発見する体験を検証しています。
 
-**体験フロー**:
-`「ただのポスターかと思った（油断）」→「近づいたら奥行きが出た（驚き）」→「覗き込んだらクーポン見つけた（報酬）」`
+> 技育展2026に向けて継続開発中です。現在は核となる「覗き込み」体験を検証するPoC段階です。
 
-## プロジェクト構造
-このプロジェクトは、Python (Backend) と JavaScript/Three.js (Frontend) で構成されています。
+## 現在できること
 
-### ディレクトリ構成 (予定)
+- Webカメラ映像からMediaPipe Face Meshで1人の顔を検出
+- 鼻先ランドマークを基準に、画面内の相対的なX / Y / Z値を取得
+- Socket.IOで検出結果を約30FPSでフロントエンドへ送信
+- Three.js上のカメラを顔の左右移動に応じて動かし、視差を表現
+- Deadzone・非線形感度・Lerpを使った簡易的な揺れ対策
+- ポスターの奥に隠した「SECRET COUPON」を、左右へ覗くことで見つけるPoC
+
+## 現在の技術的な制約
+
+現時点の実装は完成版ではありません。
+
+- 視差表現は `camera.position` + `lookAt()` とポスターの回転を組み合わせた簡易方式
+- 画面の物理サイズとユーザー視点から計算する本格的なOff-Axis Projectionは未実装
+- MediaPipeのランドマーク `z` は実距離そのものではなく、現在は距離制御には利用していない
+- トラッキングの平滑化は単純なLerpのみ
+- クーポンは現時点ではCanvasで生成した疑似QR
+- 複数人対応、行動計測、実環境での比較検証は未実装
+
+## 技育展2026に向けた改善
+
+優先順位は次の通りです。
+
+1. 画面寸法とユーザー視点位置から非対称視錐台を計算するOff-Axis Projection
+2. 視点推定のキャリブレーションとトラッキング安定化
+3. 正面では隠れ、覗いたときだけ自然に発見できる遮蔽表現の改善
+4. 実際に取得できるクーポン導線
+5. 通常広告との比較を行うための行動計測
+6. 実店舗・イベント会場などを想定した検証
+
+周辺機能よりも、まず「覗くことで広告を見る行為そのものが探索になるか」という核体験の完成度を優先します。
+
+## システム構成
+
+```text
+Webcam
+  ↓
+OpenCV / MediaPipe Face Mesh
+  ↓
+Python / FastAPI / Socket.IO
+  ↓  face_data
+JavaScript / Three.js
+  ↓
+視点連動レンダリング
 ```
-Perspective_ads/
-├── docs/               # ドキュメント (要件定義, ユースケース)
-├── backend/            # Python バックエンド
-│   ├── app.py          # エントリーポイント
-│   ├── detector.py     # 顔認識・視線追跡ロジック (MediaPipe)
+
+## ディレクトリ
+
+```text
+Perspective-Ads/
+├── backend/
+│   ├── main.py
 │   └── requirements.txt
-├── frontend/           # Web フロントエンド
-│   ├── index.html
-│   ├── style.css
-│   ├── main.js         # Three.js ロジック
-│   └── assets/         # 3Dモデル, 画像など
-├── README.md
-└── .gitignore
+├── frontend/
+│   ├── assets/
+│   ├── css/
+│   ├── js/
+│   │   └── app.js
+│   └── index.html
+├── docs/
+├── start_backend.bat
+├── open_frontend.bat
+└── README.md
 ```
 
-## 開発の進め方
-1. `docs/` 内の要件定義書に従い実装を進めます。
-2. まずは `backend/` でWebカメラから顔座標を取得し、WebSocketで送信する部分を作成します。
-3. 次に `frontend/` でThree.jsのシーンを構築し、受信したデータでカメラを動かす実装を行います。
+## 起動方法
+
+### 1. Python環境を用意
+
+Python環境を有効化した状態で依存関係をインストールします。
+
+```bash
+pip install -r backend/requirements.txt
+```
+
+### 2. バックエンドを起動
+
+Windowsでは次を実行できます。
+
+```bat
+start_backend.bat
+```
+
+または直接実行します。
+
+```bash
+python backend/main.py
+```
+
+### 3. ブラウザで開く
+
+バックエンド起動後、次を開きます。
+
+```text
+http://localhost:8000/view/
+```
+
+Windowsでは `open_frontend.bat` でも開けます。
+
+## 使用技術
+
+- Python
+- FastAPI
+- OpenCV
+- MediaPipe Face Mesh
+- python-socketio
+- JavaScript
+- Three.js
+- Socket.IO Client
+
+## 開発ブランチ
+
+技育展2026向けの改善は `geekten-2026` ブランチで進めています。
