@@ -1,356 +1,387 @@
-﻿// Perspective Ads - Frontend Logic
-// Implements the "Peeking" interaction stages for anamorphic illusion
+// Perspective Ads - Geekten 2026 prototype
+// 視点位置に基づくOff-Axis Projectionの初期実装。
 
-// -----------------------------------------------------------------------------
-// 1. Configuration & Global State
-// -----------------------------------------------------------------------------
 const CONFIG = {
-    // Camera settings
-    // ① Ad fills more of the screen (Closer camera)
-    CAMERA_Z: 45, 
-    
-    // Parallax Factors - how much the camera moves relative to face movement
-    // adjusted for closer camera
-    PARALLAX_FACTOR_X: 150, // Much Bigger range to easily see behind
-    PARALLAX_FACTOR_Y: 0, // Disable vertical movement (Only Left/Right)
-    
-    // Smoothing (Lerp) factor
-    SMOOTHING: 0.1, 
+    // 仮想スクリーン（Three.jsワールド座標）
+    SCREEN_WIDTH_WORLD: 64,
+    SCREEN_HEIGHT_WORLD: 36,
 
-    // Dimensions (16:9 Image)
-    POSTER_WIDTH: 64,
-    POSTER_HEIGHT: 36,
-    
-    // QR Code
-    QR_SIZE: 15,
-    QR_DEPTH: -40, // Push it further back so it's easier to peek around the edge
-    
-    // Interaction Stages (Deadzone & Sensitivity)
-    STAGE1_DEADZONE: 0.2, // Movement below this (20% of screen) does NOTHING.
-    STAGE2_SENSITIVITY: 0.4, // In the middle range, move slowly (0.4x speed).
+    // 実ディスプレイの概算寸法(cm)
+    // 使用するモニターに合わせてキャリブレーションする。
+    SCREEN_WIDTH_CM: 53.1,
+    SCREEN_HEIGHT_CM: 29.9,
+
+    // 現段階ではZ実距離を推定していないため固定距離で扱う。
+    VIEWER_DISTANCE_CM: 60,
+
+    // 一般的なWebカメラを仮定した概算FOV。
+    CAMERA_HFOV_DEG: 60,
+    CAMERA_VFOV_DEG: 45,
+
+    TRACKING_GAIN_X: 1.0,
+    TRACKING_GAIN_Y: 0.75,
+    MAX_VIEWER_X_CM: 40,
+    MAX_VIEWER_Y_CM: 25,
+
+    NEAR: 0.1,
+    FAR: 1000,
+
+    // 顔座標の簡易平滑化。
+    SMOOTHING: 0.16,
+    INPUT_DEADZONE: 0.025,
+
+    // 報酬発見の目安。実際の見え方は3D遮蔽で決まる。
+    PEEK_THRESHOLD_CM: 18,
+
+    // 仮想広告空間
+    BACKDROP_Z: -55,
+    BACKDROP_SCALE: 1.72,
+    OCCLUDER_X: 4,
+    OCCLUDER_Z: -16,
+    OCCLUDER_WIDTH: 26,
+    OCCLUDER_HEIGHT: 28,
+    OCCLUDER_DEPTH: 8,
+    QR_X: 18,
+    QR_Y: 0,
+    QR_Z: -30,
+    QR_SIZE: 10,
 };
 
-// State
-let faceData = { x: 0, y: 0, detected: false };
-let targetCamPos = { x: 0, y: 0, z: CONFIG.CAMERA_Z };
-let currentCamPos = { x: 0, y: 0, z: CONFIG.CAMERA_Z };
+let scene;
+let camera;
+let renderer;
+let backdropMesh;
+let occluderMesh;
+let qrMesh;
 
-// Three.js Globals
-let scene, camera, renderer;
-let posterMesh, qrMesh;
+let faceDetected = false;
+let targetViewerCm = { x: 0, y: 0, z: CONFIG.VIEWER_DISTANCE_CM };
+let currentViewerCm = { x: 0, y: 0, z: CONFIG.VIEWER_DISTANCE_CM };
 
-// DOM Elements
-const hudId = document.getElementById('hud-id');
-const hudDist = document.getElementById('hud-dist');
-const hudReticle = document.getElementById('reticle');
+const statusEl = document.getElementById('status');
+const valueXEl = document.getElementById('val-x');
+const valueYEl = document.getElementById('val-y');
+const valueZEl = document.getElementById('val-z');
+const projectionModeEl = document.getElementById('projection-mode');
 
-// -----------------------------------------------------------------------------
-// 2. Initialization
-// -----------------------------------------------------------------------------
+const clampDeadzone = (value, deadzone) => {
+    if (Math.abs(value) < deadzone) {
+        return 0;
+    }
+    return value;
+};
+
+const lerp = (current, target, amount) => current + (target - current) * amount;
+
 function init() {
-    // Setup Scene
+    if (!window.OffAxisProjection) {
+        throw new Error('OffAxisProjection helper was not loaded.');
+    }
+
     scene = new THREE.Scene();
-    scene.fog = new THREE.FogExp2(0x000000, 0.002);
+    scene.background = new THREE.Color(0x050505);
 
-    // Setup Camera
-    camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
-    camera.position.z = CONFIG.CAMERA_Z;
+    camera = new THREE.PerspectiveCamera(
+        60,
+        window.innerWidth / window.innerHeight,
+        CONFIG.NEAR,
+        CONFIG.FAR
+    );
 
-    // Setup Renderer
-    renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+    renderer = new THREE.WebGLRenderer({
+        alpha: false,
+        antialias: true,
+    });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.shadowMap.enabled = true;
+
     document.getElementById('container').appendChild(renderer.domElement);
 
-    // Lighting
-    const ambientLight = new THREE.AmbientLight(0x404040, 2); // Soft white light
-    scene.add(ambientLight);
+    createLights();
+    createAdScene();
 
-    const dirLight = new THREE.DirectionalLight(0xffffff, 1);
-    dirLight.position.set(10, 20, 30);
-    dirLight.castShadow = true;
-    scene.add(dirLight);
+    window.addEventListener('resize', onWindowResize);
 
-    const spotLight = new THREE.SpotLight(0x00aaff, 1);
-    spotLight.position.set(-20, 10, 10);
-    scene.add(spotLight);
-
-    // Create World Objects
-    createPoster();
-    createHiddenContent();
-    // createEnvironment(); // Removed for simpler look (Request ②)
-
-    // Background color
-    scene.background = new THREE.Color(0x050505); // Very dark gray, almost black
-    window.addEventListener('resize', onWindowResize, false);
-    
-    // Start Loops
     setupSocket();
     animate();
+
+    if (projectionModeEl) {
+        projectionModeEl.textContent = 'OFF-AXIS / FIXED-Z';
+    }
 }
 
-// -----------------------------------------------------------------------------
-// 3. Object Creation
-// -----------------------------------------------------------------------------
+function createLights() {
+    const ambientLight = new THREE.AmbientLight(0xffffff, 1.2);
+    scene.add(ambientLight);
 
-function createPoster() {
-    // Load local image texture
+    const keyLight = new THREE.DirectionalLight(0xffffff, 1.0);
+    keyLight.position.set(20, 30, 40);
+    keyLight.castShadow = true;
+    scene.add(keyLight);
+
+    const accentLight = new THREE.PointLight(0x55aaff, 0.8, 180);
+    accentLight.position.set(-25, 18, 15);
+    scene.add(accentLight);
+}
+
+function createAdScene() {
     const textureLoader = new THREE.TextureLoader();
-    // Assuming the user places the image at 'assets/poster.png'
-    const texture = textureLoader.load('assets/poster.png'); 
 
-    const geometry = new THREE.PlaneGeometry(CONFIG.POSTER_WIDTH, CONFIG.POSTER_HEIGHT);
-    const material = new THREE.MeshStandardMaterial({ 
-        map: texture,
+    // スクリーンそのものは描画物ではなく「窓」として扱う。
+    // 広告画像は画面奥に配置し、頭を動かしたときに空間の奥行きが見えるようにする。
+    const posterTexture = textureLoader.load('assets/poster.png');
+    const backdropGeometry = new THREE.PlaneGeometry(
+        CONFIG.SCREEN_WIDTH_WORLD * CONFIG.BACKDROP_SCALE,
+        CONFIG.SCREEN_HEIGHT_WORLD * CONFIG.BACKDROP_SCALE
+    );
+    const backdropMaterial = new THREE.MeshBasicMaterial({
+        map: posterTexture,
         side: THREE.DoubleSide,
-        roughness: 0.3, // Glossy paper look
-        metalness: 0.1
     });
 
-    posterMesh = new THREE.Mesh(geometry, material);
-    posterMesh.position.set(0, 0, 0);
-    posterMesh.castShadow = true;
-    posterMesh.receiveShadow = true;
-    
-    // Add a physical frame/border
-    const frameGeo = new THREE.BoxGeometry(CONFIG.POSTER_WIDTH + 1, CONFIG.POSTER_HEIGHT + 1, 1);
-    const frameMat = new THREE.MeshStandardMaterial({ color: 0x111111 });
-    const frame = new THREE.Mesh(frameGeo, frameMat);
-    frame.position.z = -0.6; // Slightly behind
-    posterMesh.add(frame);
+    backdropMesh = new THREE.Mesh(backdropGeometry, backdropMaterial);
+    backdropMesh.position.set(0, 0, CONFIG.BACKDROP_Z);
+    scene.add(backdropMesh);
 
-    scene.add(posterMesh);
+    // 手前の遮蔽物。正面ではこの裏にある報酬を見えなくする。
+    const occluderGeometry = new THREE.BoxGeometry(
+        CONFIG.OCCLUDER_WIDTH,
+        CONFIG.OCCLUDER_HEIGHT,
+        CONFIG.OCCLUDER_DEPTH
+    );
+    const occluderMaterial = new THREE.MeshStandardMaterial({
+        color: 0x11151c,
+        roughness: 0.5,
+        metalness: 0.15,
+    });
+
+    occluderMesh = new THREE.Mesh(occluderGeometry, occluderMaterial);
+    occluderMesh.position.set(CONFIG.OCCLUDER_X, 0, CONFIG.OCCLUDER_Z);
+    occluderMesh.castShadow = true;
+    occluderMesh.receiveShadow = true;
+    scene.add(occluderMesh);
+
+    createReward(textureLoader);
+
+    // 空間の奥行きを認識しやすくする控えめなフレーム。
+    const frameGeometry = new THREE.BoxGeometry(
+        CONFIG.SCREEN_WIDTH_WORLD + 2,
+        CONFIG.SCREEN_HEIGHT_WORLD + 2,
+        1
+    );
+    const frameMaterial = new THREE.MeshStandardMaterial({
+        color: 0x181818,
+        roughness: 0.4,
+    });
+    const frame = new THREE.Mesh(frameGeometry, frameMaterial);
+    frame.position.set(0, 0, -1.2);
+    scene.add(frame);
 }
 
-function createHiddenContent() {
-    // The Hidden QR Code
-    const canvas = document.createElement('canvas');
-    canvas.width = 256;
-    canvas.height = 256;
-    const ctx = canvas.getContext('2d');
-
-    // Pseudo-QR Pattern
-    ctx.fillStyle = "white";
-    ctx.fillRect(0, 0, 256, 256);
-    ctx.fillStyle = "black";
-    // Corners
-    ctx.fillRect(20, 20, 60, 60);
-    ctx.fillRect(176, 20, 60, 60);
-    ctx.fillRect(20, 176, 60, 60);
-    // Random noise
-    for(let i=0; i<50; i++) {
-        const x = Math.floor(Math.random() * 10) * 20 + 20;
-        const y = Math.floor(Math.random() * 10) * 20 + 20;
-        ctx.fillRect(x, y, 15, 15);
-    }
-    ctx.fillStyle = "red";
-    ctx.font = "bold 20px Arial";
-    ctx.textAlign = "center";
-    ctx.fillText("SECRET COUPON", 128, 128);
-
-    const texture = new THREE.CanvasTexture(canvas);
+function createReward(textureLoader) {
     const geometry = new THREE.PlaneGeometry(CONFIG.QR_SIZE, CONFIG.QR_SIZE);
-    const material = new THREE.MeshBasicMaterial({ map: texture });
+
+    const material = new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        side: THREE.DoubleSide,
+    });
 
     qrMesh = new THREE.Mesh(geometry, material);
-    // Position it BEHIND the poster
-    qrMesh.position.set(0, 0, CONFIG.QR_DEPTH); 
-    
-    // Add a glowing frame to make it noticeable when found
-    const frameGeo = new THREE.BoxGeometry(CONFIG.QR_SIZE + 2, CONFIG.QR_SIZE + 2, 1);
-    const frameMat = new THREE.MeshStandardMaterial({ 
-        color: 0x00ff00, 
-        emissive: 0x00ff00,
-        emissiveIntensity: 0.5 
-    });
-    const frame = new THREE.Mesh(frameGeo, frameMat);
-    frame.position.z = -1;
-    qrMesh.add(frame);
-
+    qrMesh.position.set(CONFIG.QR_X, CONFIG.QR_Y, CONFIG.QR_Z);
     scene.add(qrMesh);
-}
 
-function createEnvironment() {
-    // Floor grid to show perspective
-    const gridHelper = new THREE.GridHelper(200, 20, 0x444444, 0x222222);
-    gridHelper.position.y = -50;
-    scene.add(gridHelper);
+    textureLoader.load(
+        'assets/qr.png',
+        (texture) => {
+            qrMesh.material.map = texture;
+            qrMesh.material.needsUpdate = true;
+        },
+        undefined,
+        () => {
+            // qr.pngが読めない場合でもPoCを止めないためのフォールバック。
+            qrMesh.material.map = createFallbackCouponTexture();
+            qrMesh.material.needsUpdate = true;
+        }
+    );
 
-    // Ceiling grid
-    const topGrid = new THREE.GridHelper(200, 20, 0x444444, 0x222222);
-    topGrid.position.y = 50;
-    scene.add(topGrid);
-    
-    // Particle system (cyberpunk dust)
-    const particlesGeo = new THREE.BufferGeometry();
-    const particleCount = 200;
-    const posArray = new Float32Array(particleCount * 3);
-    
-    for(let i=0; i < particleCount * 3; i++) {
-        posArray[i] = (Math.random() - 0.5) * 200;
-        // Keep particles spread out in Z depth
-        posArray[i*3 + 2] = (Math.random() - 0.5) * 100 - 20; 
-    }
-    
-    particlesGeo.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
-    const material = new THREE.PointsMaterial({
-        size: 0.5,
-        color: 0x00ffff,
-        transparent: true,
-        opacity: 0.6
+    const glowGeometry = new THREE.BoxGeometry(
+        CONFIG.QR_SIZE + 1.2,
+        CONFIG.QR_SIZE + 1.2,
+        0.8
+    );
+    const glowMaterial = new THREE.MeshStandardMaterial({
+        color: 0x00c853,
+        emissive: 0x006b2b,
+        emissiveIntensity: 0.8,
+        roughness: 0.4,
     });
-    
-    const particlesMesh = new THREE.Points(particlesGeo, material);
-    scene.add(particlesMesh);
+    const glow = new THREE.Mesh(glowGeometry, glowMaterial);
+    glow.position.z = -0.6;
+    qrMesh.add(glow);
 }
 
-function onWindowResize() {
-    camera.aspect = window.innerWidth / window.innerHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
+function createFallbackCouponTexture() {
+    const canvas = document.createElement('canvas');
+    canvas.width = 512;
+    canvas.height = 512;
+
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.fillStyle = '#101010';
+    ctx.font = 'bold 48px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('SECRET', 256, 210);
+    ctx.fillText('COUPON', 256, 280);
+
+    ctx.fillStyle = '#00a844';
+    ctx.fillRect(110, 330, 292, 70);
+
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 30px sans-serif';
+    ctx.fillText('FOUND!', 256, 376);
+
+    return new THREE.CanvasTexture(canvas);
 }
 
-// -----------------------------------------------------------------------------
-// 4. Communication (Socket.IO)
-// -----------------------------------------------------------------------------
 function setupSocket() {
-    const socket = io(); 
+    const socket = io();
 
     socket.on('connect', () => {
-        console.log('Connected to backend');
-        if(hudId) {
-            hudId.innerText = "CONNECTED";
-            hudId.style.color = "#00ff00";
+        if (statusEl) {
+            statusEl.textContent = 'TRACKING';
+        }
+    });
+
+    socket.on('disconnect', () => {
+        if (statusEl) {
+            statusEl.textContent = 'DISCONNECTED';
         }
     });
 
     socket.on('face_data', (data) => {
-        // data.x, data.y are normalized (-1 to 1)
-        faceData = data;
-        faceData.detected = true;
-        
-        // --- Input Processing for Stages ---
-        // Apply deadzone and tiered sensitivity
-        
-        let x = data.x; // Raw input (-1 to 1)
-        let processedX = 0;
-        
-        const absX = Math.abs(x);
-        const signX = Math.sign(x);
-        
-        // Stage 1: Deadzone (Ignore small movements)
-        if (absX < CONFIG.STAGE1_DEADZONE) {
-            processedX = 0; // Stay perfectly still like a normal poster
-        } 
-        // Stage 2 & 3: Progressive Movement
-        else {
-            // Remap input range [DEADZONE, 1.0] to [0, 1.0] for smooth start
-            // processedX = (absX - DEADZONE) / (1 - DEADZONE) * signX;
-            // But we want non-linear response to feel "heavy" at first
-            
-            // Current approach:
-            // Just subtract deadzone so it starts from 0 at the edge of deadzone
-            let activeX = (absX - CONFIG.STAGE1_DEADZONE); 
-            
-            // Non-linear curve (Quadratic) to make small movements small, big movements big
-            // Square the normalized value (activeX is roughly 0.0 to 0.8)
-            // Multiplying by sign restores direction
-            
-            // Simple ease-in
-            processedX = (activeX * activeX) * 2.5 * signX; 
+        faceDetected = true;
+
+        const filteredFace = {
+            ...data,
+            x: clampDeadzone(data.x ?? 0, CONFIG.INPUT_DEADZONE),
+            y: clampDeadzone(data.y ?? 0, CONFIG.INPUT_DEADZONE),
+        };
+
+        targetViewerCm = OffAxisProjection.normalizedFaceToViewerCm(
+            filteredFace,
+            getProjectionConfig()
+        );
+
+        if (statusEl) {
+            statusEl.textContent = 'FACE DETECTED';
         }
-
-        // Apply Parallax
-        targetCamPos.x = processedX * CONFIG.PARALLAX_FACTOR_X; 
-        targetCamPos.y = 0; // Disable vertical as requested
-
-        // UI Updates
-        updateHUD(data);
     });
 
     socket.on('face_lost', () => {
-        faceData.detected = false;
-        if(hudId) {
-            hudId.innerText = "SEARCHING...";
-            hudId.style.color = "red";
+        faceDetected = false;
+        targetViewerCm.x = 0;
+        targetViewerCm.y = 0;
+        targetViewerCm.z = CONFIG.VIEWER_DISTANCE_CM;
+
+        if (statusEl) {
+            statusEl.textContent = 'SEARCHING...';
         }
-        
-        // Return to center slowly
-        targetCamPos.x = 0;
-        targetCamPos.y = 0;
     });
 }
 
-function updateHUD(data) {
-    if (!hudReticle) return;
-
-    // Reticle Movement (Inverted CSS translate to follow face)
-    const moveX = (data.x) * (window.innerWidth / 2);
-    const moveY = (data.y) * (window.innerHeight / 2);
-    
-    hudReticle.style.transform = `translate(${moveX}px, ${moveY}px)`;
-    
-    if(hudDist) hudDist.innerText = Math.abs(data.z).toFixed(2);
+function getProjectionConfig() {
+    return {
+        screenWidthWorld: CONFIG.SCREEN_WIDTH_WORLD,
+        screenHeightWorld: CONFIG.SCREEN_HEIGHT_WORLD,
+        screenWidthCm: CONFIG.SCREEN_WIDTH_CM,
+        screenHeightCm: CONFIG.SCREEN_HEIGHT_CM,
+        viewerDistanceCm: CONFIG.VIEWER_DISTANCE_CM,
+        cameraHFovDeg: CONFIG.CAMERA_HFOV_DEG,
+        cameraVFovDeg: CONFIG.CAMERA_VFOV_DEG,
+        trackingGainX: CONFIG.TRACKING_GAIN_X,
+        trackingGainY: CONFIG.TRACKING_GAIN_Y,
+        maxViewerXcm: CONFIG.MAX_VIEWER_X_CM,
+        maxViewerYcm: CONFIG.MAX_VIEWER_Y_CM,
+        near: CONFIG.NEAR,
+        far: CONFIG.FAR,
+    };
 }
 
-// -----------------------------------------------------------------------------
-// 5. Animation Loop
-// -----------------------------------------------------------------------------
+function updateViewer() {
+    currentViewerCm.x = lerp(
+        currentViewerCm.x,
+        targetViewerCm.x,
+        CONFIG.SMOOTHING
+    );
+    currentViewerCm.y = lerp(
+        currentViewerCm.y,
+        targetViewerCm.y,
+        CONFIG.SMOOTHING
+    );
+    currentViewerCm.z = lerp(
+        currentViewerCm.z,
+        targetViewerCm.z,
+        CONFIG.SMOOTHING
+    );
+
+    const projectionConfig = getProjectionConfig();
+    const viewerWorld = OffAxisProjection.viewerCmToWorld(
+        currentViewerCm,
+        projectionConfig
+    );
+
+    OffAxisProjection.apply(camera, viewerWorld, projectionConfig);
+}
+
+function updateRewardPresentation() {
+    if (!qrMesh) {
+        return;
+    }
+
+    // QRは空間内のビルボードとしてユーザー側を向く。
+    qrMesh.lookAt(camera.position);
+
+    const isPeeking = Math.abs(currentViewerCm.x) >= CONFIG.PEEK_THRESHOLD_CM;
+    const targetScale = isPeeking ? 1.08 : 1.0;
+    const nextScale = lerp(qrMesh.scale.x, targetScale, 0.12);
+    qrMesh.scale.set(nextScale, nextScale, nextScale);
+}
+
+function updateDebugInfo() {
+    if (valueXEl) {
+        valueXEl.textContent = currentViewerCm.x.toFixed(1);
+    }
+    if (valueYEl) {
+        valueYEl.textContent = currentViewerCm.y.toFixed(1);
+    }
+    if (valueZEl) {
+        valueZEl.textContent = currentViewerCm.z.toFixed(1);
+    }
+
+    if (!faceDetected && projectionModeEl) {
+        projectionModeEl.textContent = 'OFF-AXIS / RETURNING';
+    } else if (projectionModeEl) {
+        projectionModeEl.textContent = 'OFF-AXIS / FIXED-Z';
+    }
+}
+
+function onWindowResize() {
+    // Off-Axis Projectionではaspectから射影を作らず、
+    // 毎フレーム実スクリーン寸法からprojection matrixを再計算する。
+    renderer.setSize(window.innerWidth, window.innerHeight);
+}
+
 function animate() {
     requestAnimationFrame(animate);
 
-    // Smoothing (Lerp)
-    currentCamPos.x += (targetCamPos.x - currentCamPos.x) * CONFIG.SMOOTHING;
-    currentCamPos.y += (targetCamPos.y - currentCamPos.y) * CONFIG.SMOOTHING;
-    
-    camera.position.x = currentCamPos.x;
-    camera.position.y = currentCamPos.y;
-    camera.lookAt(0, 0, 0); // Always look at center logic
-
-    // --- Interactive Stage Logic ---
-    
-    // ③ Feel the perspective change (Ad tilts back)
-    // When you move, the ad tilts slightly away to enhance the depth feeling
-    if (posterMesh) {
-        const tiltIntensity = 0.5; // Stronger tilt
-        // Rotate the poster slightly opposite to camera movement to expose the side?
-        // Or with it? 
-        // User request: "Ad tilts back" (Recedes).
-        // Let's make it look at the user slightly but lag behind, or tilt away.
-        // Tilting away (e.g. Camera Right -> Poster Rot Y Right) exposes the Back Left corner.
-        
-        posterMesh.rotation.y = (currentCamPos.x / CONFIG.PARALLAX_FACTOR_X) * tiltIntensity;
-        // posterMesh.rotation.x = (currentCamPos.y / CONFIG.PARALLAX_FACTOR_Y) * tiltIntensity; // Disable vertical tilt
-    }
-    
-    // ④ QR Reveal Logic
-    // QR is hidden behind the poster.
-    // It only becomes visible (and active) when the viewing angle is extreme.
-    if (qrMesh) {
-        // Calculate viewing angle or just use X position threshold
-        // At Z=45, Width=64. Edge is at x=32.
-        
-        const peekThreshold = 40; // Harder to trigger (Stage 3 only)
-        const isPeeking = Math.abs(currentCamPos.x) > peekThreshold;
-        
-        // Always visible physically (occluded by poster geometry)
-        qrMesh.visible = true; 
-
-        if (isPeeking) {
-             // STAGE 3: Scanning Mode
-             // Stop random rotation and face the user directly for readability!
-             qrMesh.lookAt(camera.position);
-             qrMesh.scale.set(1.2, 1.2, 1.2);
-        } else {
-            // STAGE 2: Teasing Mode
-            // Reset to flat and spin slowly Z-axis to catch attention
-             qrMesh.rotation.set(0, 0, Date.now() * 0.002); 
-             qrMesh.scale.set(1, 1, 1);
-        }
-    }
+    updateViewer();
+    updateRewardPresentation();
+    updateDebugInfo();
 
     renderer.render(scene, camera);
 }
 
-// Start
 init();
