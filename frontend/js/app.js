@@ -1,5 +1,5 @@
 // Perspective Ads - Geekten 2026 prototype
-// 画面を「窓」として扱うOff-Axis Projection + 広告内レイヤー探索UX。
+// 既存ポスター画像の切り抜きに依存せず、広告そのものを3D空間として設計する。
 
 const CONFIG = {
     SCREEN_WIDTH_WORLD: 64,
@@ -14,9 +14,9 @@ const CONFIG = {
     CAMERA_VFOV_DEG: 45,
 
     TRACKING_GAIN_X: 1.0,
-    TRACKING_GAIN_Y: 0.6,
+    TRACKING_GAIN_Y: 0.55,
     MAX_VIEWER_X_CM: 40,
-    MAX_VIEWER_Y_CM: 20,
+    MAX_VIEWER_Y_CM: 18,
 
     NEAR: 0.1,
     FAR: 1000,
@@ -24,45 +24,34 @@ const CONFIG = {
     SMOOTHING: 0.16,
     INPUT_DEADZONE: 0.025,
 
-    // 左右へこの程度動けば「報酬発見」。
+    // 左右へ動いてクーポンを発見したとみなす基準。
     PEEK_THRESHOLD_CM: 11,
+    PEEK_HOLD_MS: 650,
 
-    // 背景広告
-    BACKDROP_Z: -55,
-    BACKDROP_SCALE: 1.72,
+    // 3D広告内の主要オブジェクト
+    HERO_X: -8,
+    HERO_Y: -0.5,
+    HERO_Z: -14,
 
-    // バーガー前景レイヤー。
-    // poster.png上のバーガー周辺を切り出し、楕円マスクして手前へ置く。
-    FOREGROUND_X: -9.5,
-    FOREGROUND_Y: -1.5,
-    FOREGROUND_Z: -12,
-    FOREGROUND_WIDTH: 24,
-    FOREGROUND_HEIGHT: 17.5,
+    REWARD_X: -8,
+    REWARD_Y: -0.5,
+    REWARD_Z: -29,
 
-    // 切り出し領域（画像サイズに対する比率 / 左上基準）
-    BURGER_CROP_X: 0.245,
-    BURGER_CROP_Y: 0.31,
-    BURGER_CROP_W: 0.31,
-    BURGER_CROP_H: 0.43,
-
-    // バーガーの奥に隠すクーポンカード
-    REWARD_X: -4,
-    REWARD_Y: -1.0,
-    REWARD_Z: -28,
-    REWARD_WIDTH: 9.5,
-    REWARD_HEIGHT: 6.2,
+    BACKDROP_Z: -62,
 };
 
 let scene;
 let camera;
 let renderer;
-let backdropMesh;
-let foregroundBurgerMesh;
-let foregroundShadowMesh;
-let rewardMesh;
+let heroGroup;
+let rewardGroup;
+let rewardCard;
+let rewardGlow;
 
 let faceDetected = false;
 let rewardUnlocked = false;
+let peekHoldStartedAt = null;
+
 let targetViewerCm = { x: 0, y: 0, z: CONFIG.VIEWER_DISTANCE_CM };
 let currentViewerCm = { x: 0, y: 0, z: CONFIG.VIEWER_DISTANCE_CM };
 
@@ -90,7 +79,7 @@ function init() {
     }
 
     scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x000000);
+    scene.background = new THREE.Color(0x04070f);
 
     camera = new THREE.PerspectiveCamera(
         60,
@@ -106,11 +95,13 @@ function init() {
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.outputEncoding = THREE.sRGBEncoding;
 
     document.getElementById('container').appendChild(renderer.domElement);
 
     createLights();
-    createAdScene();
+    createShowcase();
 
     window.addEventListener('resize', onWindowResize);
     window.addEventListener('keydown', onKeyDown);
@@ -119,209 +110,397 @@ function init() {
     animate();
 
     if (projectionModeEl) {
-        projectionModeEl.textContent = 'OFF-AXIS / LAYERED AD';
+        projectionModeEl.textContent = 'OFF-AXIS / 3D SHOWCASE';
     }
 }
 
 function createLights() {
-    const ambientLight = new THREE.AmbientLight(0xffffff, 1.0);
-    scene.add(ambientLight);
+    const ambient = new THREE.AmbientLight(0xffffff, 0.82);
+    scene.add(ambient);
 
-    const keyLight = new THREE.DirectionalLight(0xffffff, 0.8);
-    keyLight.position.set(20, 30, 40);
-    scene.add(keyLight);
+    const key = new THREE.DirectionalLight(0xfff2dd, 1.15);
+    key.position.set(-10, 20, 26);
+    key.castShadow = true;
+    scene.add(key);
+
+    const rim = new THREE.PointLight(0x55dfff, 0.9, 95);
+    rim.position.set(-20, 7, 2);
+    scene.add(rim);
+
+    const warm = new THREE.PointLight(0xff8c52, 0.65, 80);
+    warm.position.set(13, 4, -6);
+    scene.add(warm);
 }
 
-function createAdScene() {
-    const textureLoader = new THREE.TextureLoader();
-
-    const posterTexture = textureLoader.load(
-        'assets/poster.png',
-        (texture) => {
-            // 背景と同じ元画像からバーガー部分を切り出すので、
-            // 正面では元画像とほぼ重なって見える。
-            createForegroundBurger(texture);
-        }
-    );
-
-    // 背景広告は画面全体を埋める。
-    const backdropGeometry = new THREE.PlaneGeometry(
-        CONFIG.SCREEN_WIDTH_WORLD * CONFIG.BACKDROP_SCALE,
-        CONFIG.SCREEN_HEIGHT_WORLD * CONFIG.BACKDROP_SCALE
-    );
-    const backdropMaterial = new THREE.MeshBasicMaterial({
-        map: posterTexture,
-        side: THREE.DoubleSide,
-    });
-
-    backdropMesh = new THREE.Mesh(backdropGeometry, backdropMaterial);
-    backdropMesh.position.set(0, 0, CONFIG.BACKDROP_Z);
-    scene.add(backdropMesh);
-
+function createShowcase() {
+    createBackdrop();
+    createFloorAndPodium();
+    createHeroBurger();
     createHiddenReward();
+    createDepthAccents();
 }
 
-function createForegroundBurger(posterTexture) {
-    const image = posterTexture.image;
-
-    if (!image || !image.width || !image.height) {
-        console.warn('poster.png is not ready for foreground extraction.');
-        return;
-    }
-
-    const cropX = Math.round(image.width * CONFIG.BURGER_CROP_X);
-    const cropY = Math.round(image.height * CONFIG.BURGER_CROP_Y);
-    const cropW = Math.round(image.width * CONFIG.BURGER_CROP_W);
-    const cropH = Math.round(image.height * CONFIG.BURGER_CROP_H);
-
+function createBackdrop() {
     const canvas = document.createElement('canvas');
-    canvas.width = 1024;
-    canvas.height = 768;
-
+    canvas.width = 1600;
+    canvas.height = 900;
     const ctx = canvas.getContext('2d');
 
-    // 少し横長の楕円でバーガー周辺だけを前景化する。
-    // 完全な切り抜きではなく「前景レイヤーのPoC」として自然な範囲を残す。
-    ctx.save();
-    ctx.beginPath();
-    ctx.ellipse(
-        canvas.width * 0.50,
-        canvas.height * 0.52,
-        canvas.width * 0.48,
-        canvas.height * 0.42,
-        -0.04,
-        0,
-        Math.PI * 2
-    );
-    ctx.clip();
+    const gradient = ctx.createLinearGradient(0, 0, 1600, 900);
+    gradient.addColorStop(0, '#07101f');
+    gradient.addColorStop(0.56, '#101c38');
+    gradient.addColorStop(1, '#081126');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    ctx.drawImage(
-        image,
-        cropX,
-        cropY,
-        cropW,
-        cropH,
-        0,
-        0,
-        canvas.width,
-        canvas.height
-    );
+    // 奥行きを感じるための光の帯。
+    ctx.save();
+    ctx.globalAlpha = 0.22;
+    ctx.fillStyle = '#38d7ff';
+    ctx.translate(250, 420);
+    ctx.rotate(-0.24);
+    ctx.fillRect(-500, -65, 1900, 130);
     ctx.restore();
 
-    // エッジを少し暗くして矩形の切り抜き感を弱める。
-    const edge = ctx.createRadialGradient(
-        canvas.width * 0.5,
-        canvas.height * 0.5,
-        canvas.width * 0.20,
-        canvas.width * 0.5,
-        canvas.height * 0.5,
-        canvas.width * 0.58
-    );
-    edge.addColorStop(0, 'rgba(255,255,255,1)');
-    edge.addColorStop(0.78, 'rgba(255,255,255,1)');
-    edge.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.save();
+    ctx.globalAlpha = 0.16;
+    ctx.fillStyle = '#ff7a52';
+    ctx.translate(650, 690);
+    ctx.rotate(0.20);
+    ctx.fillRect(-500, -46, 1800, 92);
+    ctx.restore();
 
-    ctx.globalCompositeOperation = 'destination-in';
-    ctx.fillStyle = edge;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.globalCompositeOperation = 'source-over';
+    // 右側は広告コピー。商品自体は3Dなので背景には描かない。
+    ctx.fillStyle = '#5ae5ff';
+    ctx.font = '700 32px Arial';
+    ctx.textAlign = 'left';
+    ctx.fillText('PERSPECTIVE ADS / DEMO 01', 930, 205);
 
-    const burgerTexture = new THREE.CanvasTexture(canvas);
-    burgerTexture.minFilter = THREE.LinearFilter;
-    burgerTexture.magFilter = THREE.LinearFilter;
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '900 108px Arial';
+    ctx.fillText('MIDNIGHT', 925, 350);
+    ctx.fillText('BURGER', 925, 455);
 
-    const geometry = new THREE.PlaneGeometry(
-        CONFIG.FOREGROUND_WIDTH,
-        CONFIG.FOREGROUND_HEIGHT
-    );
+    ctx.fillStyle = '#b9c9df';
+    ctx.font = '500 34px Arial';
+    ctx.fillText('SIGNATURE STACK', 930, 530);
 
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '900 72px Arial';
+    ctx.fillText('¥690', 930, 635);
+
+    ctx.fillStyle = '#5ae5ff';
+    ctx.font = '700 26px Arial';
+    ctx.fillText('MOVE. PEEK. DISCOVER.', 930, 705);
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.encoding = THREE.sRGBEncoding;
+
+    const geometry = new THREE.PlaneGeometry(112, 63);
     const material = new THREE.MeshBasicMaterial({
-        map: burgerTexture,
-        transparent: true,
-        alphaTest: 0.02,
+        map: texture,
         side: THREE.DoubleSide,
-        depthWrite: true,
     });
 
-    foregroundBurgerMesh = new THREE.Mesh(geometry, material);
-    foregroundBurgerMesh.position.set(
-        CONFIG.FOREGROUND_X,
-        CONFIG.FOREGROUND_Y,
-        CONFIG.FOREGROUND_Z
-    );
-    scene.add(foregroundBurgerMesh);
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.position.set(0, 0, CONFIG.BACKDROP_Z);
+    scene.add(mesh);
+}
 
-    // バーガーの裏側にごく薄い影を入れて、広告内のレイヤー感を出す。
-    const shadowGeometry = new THREE.PlaneGeometry(
-        CONFIG.FOREGROUND_WIDTH * 0.90,
-        CONFIG.FOREGROUND_HEIGHT * 0.84
-    );
-    const shadowMaterial = new THREE.MeshBasicMaterial({
-        color: 0x000000,
-        transparent: true,
-        opacity: 0.20,
-        depthWrite: false,
+function createFloorAndPodium() {
+    const floorGeometry = new THREE.PlaneGeometry(105, 80);
+    const floorMaterial = new THREE.MeshStandardMaterial({
+        color: 0x07101b,
+        roughness: 0.78,
+        metalness: 0.12,
+    });
+    const floor = new THREE.Mesh(floorGeometry, floorMaterial);
+    floor.rotation.x = -Math.PI / 2;
+    floor.position.set(0, -12, -27);
+    floor.receiveShadow = true;
+    scene.add(floor);
+
+    const podiumGeometry = new THREE.CylinderGeometry(10, 11.2, 1.5, 64);
+    const podiumMaterial = new THREE.MeshStandardMaterial({
+        color: 0x132640,
+        roughness: 0.36,
+        metalness: 0.62,
+    });
+    const podium = new THREE.Mesh(podiumGeometry, podiumMaterial);
+    podium.position.set(CONFIG.HERO_X, -8.5, -19);
+    podium.receiveShadow = true;
+    podium.castShadow = true;
+    scene.add(podium);
+
+    const ringGeometry = new THREE.TorusGeometry(9.2, 0.17, 12, 96);
+    const ringMaterial = new THREE.MeshBasicMaterial({
+        color: 0x49ddff,
+    });
+    const ring = new THREE.Mesh(ringGeometry, ringMaterial);
+    ring.rotation.x = Math.PI / 2;
+    ring.position.set(CONFIG.HERO_X, -7.68, -19);
+    scene.add(ring);
+}
+
+function createHeroBurger() {
+    heroGroup = new THREE.Group();
+    heroGroup.position.set(CONFIG.HERO_X, CONFIG.HERO_Y, CONFIG.HERO_Z);
+    heroGroup.rotation.y = -0.08;
+    scene.add(heroGroup);
+
+    const bunMaterial = new THREE.MeshStandardMaterial({
+        color: 0xd98c3f,
+        roughness: 0.56,
+        metalness: 0.02,
+    });
+    const bunHighlightMaterial = new THREE.MeshStandardMaterial({
+        color: 0xf2b35f,
+        roughness: 0.48,
+    });
+    const pattyMaterial = new THREE.MeshStandardMaterial({
+        color: 0x3a1f18,
+        roughness: 0.72,
+    });
+    const cheeseMaterial = new THREE.MeshStandardMaterial({
+        color: 0xffcc3e,
+        roughness: 0.42,
+    });
+    const tomatoMaterial = new THREE.MeshStandardMaterial({
+        color: 0xd94a3f,
+        roughness: 0.56,
+    });
+    const lettuceMaterial = new THREE.MeshStandardMaterial({
+        color: 0x5dbd4e,
+        roughness: 0.7,
     });
 
-    foregroundShadowMesh = new THREE.Mesh(shadowGeometry, shadowMaterial);
-    foregroundShadowMesh.position.set(
-        CONFIG.FOREGROUND_X + 0.5,
-        CONFIG.FOREGROUND_Y - 0.3,
-        CONFIG.FOREGROUND_Z - 0.8
+    // 下バンズ
+    const bottomBun = new THREE.Mesh(
+        new THREE.CylinderGeometry(6.7, 7.0, 1.7, 64),
+        bunMaterial
     );
-    scene.add(foregroundShadowMesh);
+    bottomBun.position.y = -3.45;
+    bottomBun.castShadow = true;
+    bottomBun.receiveShadow = true;
+    heroGroup.add(bottomBun);
+
+    // パティ
+    const patty = new THREE.Mesh(
+        new THREE.CylinderGeometry(6.25, 6.5, 1.45, 64),
+        pattyMaterial
+    );
+    patty.position.y = -1.9;
+    patty.castShadow = true;
+    heroGroup.add(patty);
+
+    // チーズ。正方形を少し回して角を出す。
+    const cheese = new THREE.Mesh(
+        new THREE.BoxGeometry(10.8, 0.32, 10.8),
+        cheeseMaterial
+    );
+    cheese.position.y = -0.92;
+    cheese.rotation.y = Math.PI / 4;
+    cheese.castShadow = true;
+    heroGroup.add(cheese);
+
+    // トマト
+    const tomato = new THREE.Mesh(
+        new THREE.CylinderGeometry(5.9, 5.9, 0.46, 64),
+        tomatoMaterial
+    );
+    tomato.position.y = -0.28;
+    heroGroup.add(tomato);
+
+    // レタス
+    const lettuce = new THREE.Mesh(
+        new THREE.TorusGeometry(5.75, 0.52, 16, 96),
+        lettuceMaterial
+    );
+    lettuce.rotation.x = Math.PI / 2;
+    lettuce.position.y = 0.48;
+    lettuce.scale.z = 0.82;
+    heroGroup.add(lettuce);
+
+    // 上バンズ
+    const topBun = new THREE.Mesh(
+        new THREE.SphereGeometry(
+            7.0,
+            64,
+            32,
+            0,
+            Math.PI * 2,
+            0,
+            Math.PI / 2
+        ),
+        bunHighlightMaterial
+    );
+    topBun.scale.y = 0.56;
+    topBun.position.y = 1.05;
+    topBun.castShadow = true;
+    heroGroup.add(topBun);
+
+    createSesameSeeds(heroGroup);
+
+    // 商品名プレート
+    const labelTexture = createLabelTexture('SIGNATURE STACK', 'DOUBLE CHEESE / ¥690');
+    const label = new THREE.Mesh(
+        new THREE.PlaneGeometry(15, 3.7),
+        new THREE.MeshBasicMaterial({
+            map: labelTexture,
+            transparent: true,
+            side: THREE.DoubleSide,
+        })
+    );
+    label.position.set(0, -6.8, 0.4);
+    heroGroup.add(label);
+}
+
+function createSesameSeeds(group) {
+    const material = new THREE.MeshStandardMaterial({
+        color: 0xffe6ad,
+        roughness: 0.7,
+    });
+
+    const points = [
+        [-3.1, 4.6, 1.3, -0.35],
+        [-1.3, 5.1, 2.1, 0.25],
+        [0.9, 5.0, 2.25, -0.15],
+        [3.0, 4.45, 1.4, 0.32],
+        [-2.2, 4.1, 3.1, 0.18],
+        [2.1, 4.0, 3.0, -0.28],
+        [0.1, 5.25, 0.8, 0.45],
+    ];
+
+    for (const [x, y, z, rotationZ] of points) {
+        const seed = new THREE.Mesh(
+            new THREE.SphereGeometry(0.24, 12, 8),
+            material
+        );
+        seed.scale.set(1.7, 0.55, 0.75);
+        seed.position.set(x, y, z);
+        seed.rotation.z = rotationZ;
+        group.add(seed);
+    }
+}
+
+function createLabelTexture(title, subtitle) {
+    const canvas = document.createElement('canvas');
+    canvas.width = 1200;
+    canvas.height = 300;
+    const ctx = canvas.getContext('2d');
+
+    ctx.fillStyle = 'rgba(4, 11, 23, 0.80)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.strokeStyle = '#4ce1ff';
+    ctx.lineWidth = 8;
+    ctx.strokeRect(8, 8, canvas.width - 16, canvas.height - 16);
+
+    ctx.fillStyle = '#ffffff';
+    ctx.textAlign = 'center';
+    ctx.font = '900 78px Arial';
+    ctx.fillText(title, 600, 125);
+
+    ctx.fillStyle = '#72e8ff';
+    ctx.font = '700 34px Arial';
+    ctx.fillText(subtitle, 600, 205);
+
+    return new THREE.CanvasTexture(canvas);
 }
 
 function createHiddenReward() {
-    const geometry = new THREE.PlaneGeometry(
-        CONFIG.REWARD_WIDTH,
-        CONFIG.REWARD_HEIGHT
-    );
-
-    const material = new THREE.MeshBasicMaterial({
-        map: createHiddenRewardTexture(),
-        side: THREE.DoubleSide,
-        transparent: true,
-    });
-
-    rewardMesh = new THREE.Mesh(geometry, material);
-    rewardMesh.position.set(
+    rewardGroup = new THREE.Group();
+    rewardGroup.position.set(
         CONFIG.REWARD_X,
         CONFIG.REWARD_Y,
         CONFIG.REWARD_Z
     );
-    scene.add(rewardMesh);
+    scene.add(rewardGroup);
+
+    const cardTexture = createRewardTexture();
+    const cardMaterial = new THREE.MeshBasicMaterial({
+        map: cardTexture,
+        side: THREE.DoubleSide,
+    });
+
+    rewardCard = new THREE.Mesh(
+        new THREE.PlaneGeometry(9.8, 6.3),
+        cardMaterial
+    );
+    rewardGroup.add(rewardCard);
+
+    const frame = new THREE.Mesh(
+        new THREE.BoxGeometry(10.5, 7.0, 0.55),
+        new THREE.MeshStandardMaterial({
+            color: 0x28e7c8,
+            emissive: 0x0d715f,
+            emissiveIntensity: 0.7,
+            roughness: 0.35,
+        })
+    );
+    frame.position.z = -0.5;
+    rewardGroup.add(frame);
+
+    rewardGlow = new THREE.PointLight(0x38ffd4, 0.2, 32);
+    rewardGlow.position.set(0, 0, 2);
+    rewardGroup.add(rewardGlow);
 }
 
-function createHiddenRewardTexture() {
+function createRewardTexture() {
     const canvas = document.createElement('canvas');
-    canvas.width = 900;
-    canvas.height = 600;
-
+    canvas.width = 1000;
+    canvas.height = 640;
     const ctx = canvas.getContext('2d');
 
-    const gradient = ctx.createLinearGradient(0, 0, 900, 600);
-    gradient.addColorStop(0, '#ffe95c');
-    gradient.addColorStop(1, '#38ffd2');
+    const gradient = ctx.createLinearGradient(0, 0, 1000, 640);
+    gradient.addColorStop(0, '#efff7a');
+    gradient.addColorStop(1, '#38ffd4');
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    ctx.strokeStyle = '#071321';
-    ctx.lineWidth = 22;
-    ctx.strokeRect(12, 12, canvas.width - 24, canvas.height - 24);
-
     ctx.fillStyle = '#071321';
     ctx.textAlign = 'center';
-    ctx.font = '800 58px Arial';
-    ctx.fillText('SECRET COUPON', 450, 130);
+    ctx.font = '800 64px Arial';
+    ctx.fillText('SECRET COUPON', 500, 140);
 
-    ctx.font = '900 150px Arial';
-    ctx.fillText('20% OFF', 450, 335);
+    ctx.font = '900 174px Arial';
+    ctx.fillText('20% OFF', 500, 370);
 
-    ctx.font = '800 34px Arial';
-    ctx.fillText('PEEK FOUND!', 450, 465);
+    ctx.font = '800 38px Arial';
+    ctx.fillText('YOU FOUND IT', 500, 505);
 
     return new THREE.CanvasTexture(canvas);
+}
+
+function createDepthAccents() {
+    const materialA = new THREE.MeshBasicMaterial({
+        color: 0x31dfff,
+        transparent: true,
+        opacity: 0.2,
+        depthWrite: false,
+    });
+    const materialB = new THREE.MeshBasicMaterial({
+        color: 0xff795d,
+        transparent: true,
+        opacity: 0.15,
+        depthWrite: false,
+    });
+
+    const leftBar = new THREE.Mesh(
+        new THREE.BoxGeometry(2.5, 30, 2.5),
+        materialA
+    );
+    leftBar.position.set(-28, 0, -38);
+    leftBar.rotation.z = -0.16;
+    scene.add(leftBar);
+
+    const rightBar = new THREE.Mesh(
+        new THREE.BoxGeometry(2.0, 26, 2.0),
+        materialB
+    );
+    rightBar.position.set(27, 1, -46);
+    rightBar.rotation.z = 0.16;
+    scene.add(rightBar);
 }
 
 function setupSocket() {
@@ -363,6 +542,7 @@ function setupSocket() {
         targetViewerCm.x = 0;
         targetViewerCm.y = 0;
         targetViewerCm.z = CONFIG.VIEWER_DISTANCE_CM;
+        peekHoldStartedAt = null;
 
         if (statusEl) {
             statusEl.textContent = 'SEARCHING...';
@@ -414,33 +594,53 @@ function updateViewer() {
     OffAxisProjection.apply(camera, viewerWorld, projectionConfig);
 }
 
-function updateRewardPresentation() {
-    if (!rewardMesh) {
+function updateShowcase(timeMs) {
+    if (heroGroup) {
+        // 商品は回転させず、広告空間そのものの視差を体験させる。
+        heroGroup.position.y =
+            CONFIG.HERO_Y + Math.sin(timeMs * 0.0012) * 0.12;
+    }
+
+    if (!rewardGroup) {
         return;
     }
 
-    rewardMesh.lookAt(camera.position);
-
-    // 正面ではバーガー前景の裏に隠れ、身体を横へ動かすと端から見える。
     const peekProgress = Math.min(
         1,
         Math.abs(currentViewerCm.x) / CONFIG.PEEK_THRESHOLD_CM
     );
 
-    const targetScale = 1 + peekProgress * 0.08;
-    const nextScale = lerp(rewardMesh.scale.x, targetScale, 0.12);
-    rewardMesh.scale.set(nextScale, nextScale, nextScale);
+    if (rewardGlow) {
+        rewardGlow.intensity = 0.15 + peekProgress * 1.2;
+    }
+
+    const targetScale = 1 + peekProgress * 0.06;
+    const nextScale = lerp(rewardGroup.scale.x, targetScale, 0.12);
+    rewardGroup.scale.set(nextScale, nextScale, nextScale);
+
+    if (peekHintEl && !rewardUnlocked) {
+        peekHintEl.style.opacity = String(
+            Math.max(0.28, 1 - peekProgress * 0.58)
+        );
+    }
 
     const isPeeking =
         faceDetected &&
         Math.abs(currentViewerCm.x) >= CONFIG.PEEK_THRESHOLD_CM;
 
-    if (peekHintEl && !rewardUnlocked) {
-        peekHintEl.style.opacity = String(Math.max(0.25, 1 - peekProgress * 0.55));
-    }
+    if (isPeeking) {
+        if (peekHoldStartedAt === null) {
+            peekHoldStartedAt = performance.now();
+        }
 
-    if (isPeeking && !rewardUnlocked) {
-        unlockReward();
+        if (
+            !rewardUnlocked &&
+            performance.now() - peekHoldStartedAt >= CONFIG.PEEK_HOLD_MS
+        ) {
+            unlockReward();
+        }
+    } else {
+        peekHoldStartedAt = null;
     }
 }
 
@@ -458,6 +658,7 @@ function unlockReward() {
 
 function resetReward() {
     rewardUnlocked = false;
+    peekHoldStartedAt = null;
 
     if (peekHintEl) {
         peekHintEl.classList.remove('is-hidden');
@@ -509,7 +710,7 @@ function updateDebugInfo() {
     if (!faceDetected && projectionModeEl) {
         projectionModeEl.textContent = 'OFF-AXIS / RETURNING';
     } else if (projectionModeEl) {
-        projectionModeEl.textContent = 'OFF-AXIS / LAYERED AD';
+        projectionModeEl.textContent = 'OFF-AXIS / 3D SHOWCASE';
     }
 }
 
@@ -517,11 +718,11 @@ function onWindowResize() {
     renderer.setSize(window.innerWidth, window.innerHeight);
 }
 
-function animate() {
+function animate(timeMs = 0) {
     requestAnimationFrame(animate);
 
     updateViewer();
-    updateRewardPresentation();
+    updateShowcase(timeMs);
     updateDebugInfo();
 
     renderer.render(scene, camera);
