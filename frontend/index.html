@@ -4,35 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Perspective Ads Demo</title>
-    <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-    <div id="container"></div>
-
-    <div id="peek-hint">← MOVE TO FIND THE HIDDEN COUPON →</div>
-
-    <div id="reward-overlay" aria-live="polite">
-        <div class="reward-panel">
-            <div class="reward-kicker">HIDDEN OFFER FOUND</div>
-            <div class="reward-discount">20% OFF</div>
-            <img src="assets/qr.png" alt="Coupon QR code">
-            <div class="reward-caption">SCAN TO CLAIM</div>
-            <div class="reward-reset">R key to reset</div>
-        </div>
-    </div>
-
-    <div id="debug-info" class="is-hidden">
-        <p>Status: <span id="status">Connecting...</span></p>
-        <p>Viewer X(cm): <span id="val-x">0</span></p>
-        <p>Viewer Y(cm): <span id="val-y">0</span></p>
-        <p>Viewer Z(cm): <span id="val-z">0</span></p>
-        <p>Mode: <span id="projection-mode">OFF-AXIS</span></p>
-        <p>F: fullscreen / D: debug / R: reset</p>
-    </div>
-
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
-    <script src="js/projection.js"></script>
-    <script src="js/app.js"></script>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
 </body>
 </html>

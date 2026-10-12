@@ -30,8 +30,9 @@ Thumbs.db
 # Logs
 *.log
 
-# Node.js (if applicable in future)
+# Node.js
 node_modules/
+frontend/dist/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*

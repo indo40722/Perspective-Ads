@@ -6,8 +6,8 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 import threading
 import asyncio
-import numpy as np
 import os
+import time
 
 # --- 設定 ---
 CAMERA_ID = 0  # WebカメラのID
@@ -18,8 +18,12 @@ latest_data = {
     "x": 0.0,
     "y": 0.0,
     "z": 0.0,
-    "detected": False
+    "detected": False,
+    "frame_id": 0,
+    "updated_at": 0.0,
 }
+latest_data_lock = threading.Lock()
+camera_stop_event = threading.Event()
 
 # --- FastAPI & Socket.IO セットアップ ---
 sio = socketio.AsyncServer(async_mode='asgi', cors_allowed_origins='*')
@@ -27,13 +31,13 @@ app = FastAPI()
 sio_app = socketio.ASGIApp(sio, app)
 
 # フロントエンドの静的ファイル配信設定
-# backend/main.py から見て ../frontend を配信する
-frontend_dir = os.path.join(os.path.dirname(__file__), '../frontend')
-if os.path.exists(frontend_dir):
+# backend/main.py から見て ../frontend/dist を配信する
+frontend_dir = os.path.join(os.path.dirname(__file__), '../frontend/dist')
+if os.path.isdir(frontend_dir):
     app.mount("/view", StaticFiles(directory=frontend_dir, html=True), name="view")
     print(f"Frontend mounted at http://localhost:8000/view/")
 else:
-    print(f"Frontend directory not found at {frontend_dir}")
+    print(f"フロントエンドのビルドがありません。先に npm --prefix frontend run build を実行してください: {frontend_dir}")
 
 @app.get("/")
 async def root():
@@ -50,8 +54,8 @@ async def disconnect(sid):
 # --- カメラ処理関数 (別スレッドで実行) ---
 def camera_loop():
     global latest_data
-    
-    print("Loading MediaPipe (first run requires building font cache, please wait 1-2 minutes)...")
+
+    print("MediaPipeを読み込んでいます...")
     mp_face_mesh = mp.solutions.face_mesh
     face_mesh = mp_face_mesh.FaceMesh(
         max_num_faces=1,
@@ -62,73 +66,86 @@ def camera_loop():
 
     cap = cv2.VideoCapture(CAMERA_ID)
     if not cap.isOpened():
-        print("Error: Could not open camera.")
+        print("カメラを開けませんでした。")
         return
 
-    print("Camera started.")
-    
-    first_detection = True
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, WIDTH)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, HEIGHT)
+    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+    print("カメラを起動しました。")
 
-    while True:
+    frame_id = 0
+    while not camera_stop_event.is_set():
         success, image = cap.read()
         if not success:
+            time.sleep(0.01)
             continue
 
         image.flags.writeable = False
         image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         results = face_mesh.process(image_rgb)
-        
-        if results.multi_face_landmarks:
-            if first_detection:
-                print("Face detected!")
-                first_detection = False
 
-            for face_landmarks in results.multi_face_landmarks:
-                # 鼻先 (Index 4) を基準にする
-                nose = face_landmarks.landmark[4]
-                
-                # 座標系: 
-                # MediaPipe: x(左0->右1), y(上0->下1), z(顔中心0)
-                # Three.jsへ送るため正規化: x(-1 ~ 1), y(-1 ~ 1)
-                
-                nx = (nose.x - 0.5) * 2  
-                ny = (nose.y - 0.5) * 2  
-                nz = nose.z              
-                
-                # 更新
-                latest_data["x"] = nx
-                latest_data["y"] = ny
-                latest_data["z"] = nz
-                latest_data["detected"] = True
-        else:
-            latest_data["detected"] = False
-            
-        # CPU負荷軽減
-        # cv2.waitKey(1) 
+        detected = bool(results.multi_face_landmarks)
+        x = 0.0
+        y = 0.0
+        z = 0.0
+        if detected:
+            nose = results.multi_face_landmarks[0].landmark[4]
+            x = (nose.x - 0.5) * 2
+            y = (nose.y - 0.5) * 2
+            z = nose.z
+
+        frame_id += 1
+        with latest_data_lock:
+            latest_data = {
+                "x": x,
+                "y": y,
+                "z": z,
+                "detected": detected,
+                "frame_id": frame_id,
+                "updated_at": time.monotonic(),
+            }
 
     cap.release()
+    face_mesh.close()
 
 # --- ブロードキャストループ (非同期) ---
 async def broadcast_loop():
+    last_frame_id = 0
+    last_detected = False
+
     while True:
-        # 最新の座標データを全クライアントに送信
-        if latest_data["detected"]:
-            # 辞書をコピーして送信（競合回避）
+        with latest_data_lock:
             data_to_send = latest_data.copy()
-            await sio.emit('face_data', data_to_send)
-        else:
-            await sio.emit('face_lost', {})
-            
-        await asyncio.sleep(0.033) # 約30FPSで送信
+
+        if data_to_send["frame_id"] != last_frame_id:
+            last_frame_id = data_to_send["frame_id"]
+            if data_to_send["detected"]:
+                await sio.emit('face_data', data_to_send)
+                last_detected = True
+            elif last_detected:
+                await sio.emit('face_lost', {"frame_id": last_frame_id})
+                last_detected = False
+        elif (
+            last_detected
+            and data_to_send["detected"]
+            and time.monotonic() - data_to_send["updated_at"] > 0.5
+        ):
+            await sio.emit('face_lost', {"frame_id": last_frame_id})
+            last_detected = False
+
+        await asyncio.sleep(0.01)
 
 @app.on_event("startup")
 async def startup_event():
-    # カメラ処理スレッド開始
+    camera_stop_event.clear()
     t = threading.Thread(target=camera_loop, daemon=True)
     t.start()
-    
-    # データ送信タスク開始
     asyncio.create_task(broadcast_loop())
 
+@app.on_event("shutdown")
+async def shutdown_event():
+    camera_stop_event.set()
+
 if __name__ == "__main__":
-    uvicorn.run("main:sio_app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run(sio_app, host="0.0.0.0", port=8000)

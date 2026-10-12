@@ -1,44 +1,6 @@
-// Perspective Ads - Geekten 2026 prototype
-// 既存ポスター画像の切り抜きに依存せず、広告そのものを3D空間として設計する。
-
-const CONFIG = {
-    SCREEN_WIDTH_WORLD: 64,
-    SCREEN_HEIGHT_WORLD: 36,
-
-    // 実ディスプレイの概算寸法(cm)。最終的には実機に合わせてキャリブレーションする。
-    SCREEN_WIDTH_CM: 53.1,
-    SCREEN_HEIGHT_CM: 29.9,
-    VIEWER_DISTANCE_CM: 60,
-
-    CAMERA_HFOV_DEG: 60,
-    CAMERA_VFOV_DEG: 45,
-
-    TRACKING_GAIN_X: 1.0,
-    TRACKING_GAIN_Y: 0.55,
-    MAX_VIEWER_X_CM: 40,
-    MAX_VIEWER_Y_CM: 18,
-
-    NEAR: 0.1,
-    FAR: 1000,
-
-    SMOOTHING: 0.16,
-    INPUT_DEADZONE: 0.025,
-
-    // 左右へ動いてクーポンを発見したとみなす基準。
-    PEEK_THRESHOLD_CM: 11,
-    PEEK_HOLD_MS: 650,
-
-    // 3D広告内の主要オブジェクト
-    HERO_X: -8,
-    HERO_Y: -0.5,
-    HERO_Z: -14,
-
-    REWARD_X: -8,
-    REWARD_Y: -0.5,
-    REWARD_Z: -29,
-
-    BACKDROP_Z: -62,
-};
+import * as THREE from "three";
+import { applyOffAxisProjection, viewerCmToWorld } from "./projection.js";
+import { CONFIG } from "./config.js";
 
 let scene;
 let camera;
@@ -48,36 +10,9 @@ let rewardGroup;
 let rewardCard;
 let rewardGlow;
 
-let faceDetected = false;
-let rewardUnlocked = false;
-let peekHoldStartedAt = null;
-
-let targetViewerCm = { x: 0, y: 0, z: CONFIG.VIEWER_DISTANCE_CM };
-let currentViewerCm = { x: 0, y: 0, z: CONFIG.VIEWER_DISTANCE_CM };
-
-const statusEl = document.getElementById('status');
-const valueXEl = document.getElementById('val-x');
-const valueYEl = document.getElementById('val-y');
-const valueZEl = document.getElementById('val-z');
-const projectionModeEl = document.getElementById('projection-mode');
-const debugInfoEl = document.getElementById('debug-info');
-const peekHintEl = document.getElementById('peek-hint');
-const rewardOverlayEl = document.getElementById('reward-overlay');
-
-const clampDeadzone = (value, deadzone) => {
-    if (Math.abs(value) < deadzone) {
-        return 0;
-    }
-    return value;
-};
-
 const lerp = (current, target, amount) => current + (target - current) * amount;
 
-function init() {
-    if (!window.OffAxisProjection) {
-        throw new Error('OffAxisProjection helper was not loaded.');
-    }
-
+export function createShowcase(container) {
     scene = new THREE.Scene();
     scene.background = new THREE.Color(0x04070f);
 
@@ -93,25 +28,52 @@ function init() {
         antialias: true,
     });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.setSize(window.innerWidth, window.innerHeight);
+    resizeRenderer();
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.outputEncoding = THREE.sRGBEncoding;
 
-    document.getElementById('container').appendChild(renderer.domElement);
+    container.appendChild(renderer.domElement);
 
     createLights();
-    createShowcase();
+    buildShowcase();
 
     window.addEventListener('resize', onWindowResize);
-    window.addEventListener('keydown', onKeyDown);
 
-    setupSocket();
-    animate();
-
-    if (projectionModeEl) {
-        projectionModeEl.textContent = 'OFF-AXIS / 3D SHOWCASE';
-    }
+    return {
+        setViewer(viewerCm) {
+            const viewerWorld = viewerCmToWorld(viewerCm, CONFIG);
+            applyOffAxisProjection(camera, viewerWorld, CONFIG);
+        },
+        render(timeMs, viewerXcm) {
+            updateShowcase(timeMs, viewerXcm);
+            renderer.render(scene, camera);
+        },
+        dispose() {
+            window.removeEventListener('resize', onWindowResize);
+            scene.traverse((object) => {
+                object.geometry?.dispose();
+                const materials = Array.isArray(object.material)
+                    ? object.material
+                    : [object.material];
+                for (const material of materials) {
+                    if (!material) {
+                        continue;
+                    }
+                    for (const value of Object.values(material)) {
+                        if (value?.isTexture) {
+                            value.dispose();
+                        }
+                    }
+                    material.dispose();
+                }
+            });
+            renderer.dispose();
+            if (renderer.domElement.parentElement === container) {
+                container.removeChild(renderer.domElement);
+            }
+        },
+    };
 }
 
 function createLights() {
@@ -132,7 +94,7 @@ function createLights() {
     scene.add(warm);
 }
 
-function createShowcase() {
+function buildShowcase() {
     createBackdrop();
     createFloorAndPodium();
     createHeroBurger();
@@ -503,98 +465,7 @@ function createDepthAccents() {
     scene.add(rightBar);
 }
 
-function setupSocket() {
-    const socket = io();
-
-    socket.on('connect', () => {
-        if (statusEl) {
-            statusEl.textContent = 'TRACKING';
-        }
-    });
-
-    socket.on('disconnect', () => {
-        if (statusEl) {
-            statusEl.textContent = 'DISCONNECTED';
-        }
-    });
-
-    socket.on('face_data', (data) => {
-        faceDetected = true;
-
-        const filteredFace = {
-            ...data,
-            x: clampDeadzone(data.x ?? 0, CONFIG.INPUT_DEADZONE),
-            y: clampDeadzone(data.y ?? 0, CONFIG.INPUT_DEADZONE),
-        };
-
-        targetViewerCm = OffAxisProjection.normalizedFaceToViewerCm(
-            filteredFace,
-            getProjectionConfig()
-        );
-
-        if (statusEl) {
-            statusEl.textContent = 'FACE DETECTED';
-        }
-    });
-
-    socket.on('face_lost', () => {
-        faceDetected = false;
-        targetViewerCm.x = 0;
-        targetViewerCm.y = 0;
-        targetViewerCm.z = CONFIG.VIEWER_DISTANCE_CM;
-        peekHoldStartedAt = null;
-
-        if (statusEl) {
-            statusEl.textContent = 'SEARCHING...';
-        }
-    });
-}
-
-function getProjectionConfig() {
-    return {
-        screenWidthWorld: CONFIG.SCREEN_WIDTH_WORLD,
-        screenHeightWorld: CONFIG.SCREEN_HEIGHT_WORLD,
-        screenWidthCm: CONFIG.SCREEN_WIDTH_CM,
-        screenHeightCm: CONFIG.SCREEN_HEIGHT_CM,
-        viewerDistanceCm: CONFIG.VIEWER_DISTANCE_CM,
-        cameraHFovDeg: CONFIG.CAMERA_HFOV_DEG,
-        cameraVFovDeg: CONFIG.CAMERA_VFOV_DEG,
-        trackingGainX: CONFIG.TRACKING_GAIN_X,
-        trackingGainY: CONFIG.TRACKING_GAIN_Y,
-        maxViewerXcm: CONFIG.MAX_VIEWER_X_CM,
-        maxViewerYcm: CONFIG.MAX_VIEWER_Y_CM,
-        near: CONFIG.NEAR,
-        far: CONFIG.FAR,
-    };
-}
-
-function updateViewer() {
-    currentViewerCm.x = lerp(
-        currentViewerCm.x,
-        targetViewerCm.x,
-        CONFIG.SMOOTHING
-    );
-    currentViewerCm.y = lerp(
-        currentViewerCm.y,
-        targetViewerCm.y,
-        CONFIG.SMOOTHING
-    );
-    currentViewerCm.z = lerp(
-        currentViewerCm.z,
-        targetViewerCm.z,
-        CONFIG.SMOOTHING
-    );
-
-    const projectionConfig = getProjectionConfig();
-    const viewerWorld = OffAxisProjection.viewerCmToWorld(
-        currentViewerCm,
-        projectionConfig
-    );
-
-    OffAxisProjection.apply(camera, viewerWorld, projectionConfig);
-}
-
-function updateShowcase(timeMs) {
+function updateShowcase(timeMs, viewerXcm) {
     if (heroGroup) {
         // 商品は回転させず、広告空間そのものの視差を体験させる。
         heroGroup.position.y =
@@ -607,7 +478,7 @@ function updateShowcase(timeMs) {
 
     const peekProgress = Math.min(
         1,
-        Math.abs(currentViewerCm.x) / CONFIG.PEEK_THRESHOLD_CM
+        Math.abs(viewerXcm) / CONFIG.PEEK_THRESHOLD_CM
     );
 
     if (rewardGlow) {
@@ -617,115 +488,22 @@ function updateShowcase(timeMs) {
     const targetScale = 1 + peekProgress * 0.06;
     const nextScale = lerp(rewardGroup.scale.x, targetScale, 0.12);
     rewardGroup.scale.set(nextScale, nextScale, nextScale);
-
-    if (peekHintEl && !rewardUnlocked) {
-        peekHintEl.style.opacity = String(
-            Math.max(0.28, 1 - peekProgress * 0.58)
-        );
-    }
-
-    const isPeeking =
-        faceDetected &&
-        Math.abs(currentViewerCm.x) >= CONFIG.PEEK_THRESHOLD_CM;
-
-    if (isPeeking) {
-        if (peekHoldStartedAt === null) {
-            peekHoldStartedAt = performance.now();
-        }
-
-        if (
-            !rewardUnlocked &&
-            performance.now() - peekHoldStartedAt >= CONFIG.PEEK_HOLD_MS
-        ) {
-            unlockReward();
-        }
-    } else {
-        peekHoldStartedAt = null;
-    }
-}
-
-function unlockReward() {
-    rewardUnlocked = true;
-
-    if (peekHintEl) {
-        peekHintEl.classList.add('is-hidden');
-    }
-
-    if (rewardOverlayEl) {
-        rewardOverlayEl.classList.add('is-visible');
-    }
-}
-
-function resetReward() {
-    rewardUnlocked = false;
-    peekHoldStartedAt = null;
-
-    if (peekHintEl) {
-        peekHintEl.classList.remove('is-hidden');
-        peekHintEl.style.opacity = '';
-    }
-
-    if (rewardOverlayEl) {
-        rewardOverlayEl.classList.remove('is-visible');
-    }
-}
-
-async function toggleFullscreen() {
-    try {
-        if (!document.fullscreenElement) {
-            await document.documentElement.requestFullscreen();
-        } else {
-            await document.exitFullscreen();
-        }
-    } catch (error) {
-        console.warn('Fullscreen request failed:', error);
-    }
-}
-
-function onKeyDown(event) {
-    if (event.key === 'f' || event.key === 'F') {
-        toggleFullscreen();
-    }
-
-    if (event.key === 'd' || event.key === 'D') {
-        debugInfoEl?.classList.toggle('is-hidden');
-    }
-
-    if (event.key === 'r' || event.key === 'R') {
-        resetReward();
-    }
-}
-
-function updateDebugInfo() {
-    if (valueXEl) {
-        valueXEl.textContent = currentViewerCm.x.toFixed(1);
-    }
-    if (valueYEl) {
-        valueYEl.textContent = currentViewerCm.y.toFixed(1);
-    }
-    if (valueZEl) {
-        valueZEl.textContent = currentViewerCm.z.toFixed(1);
-    }
-
-    if (!faceDetected && projectionModeEl) {
-        projectionModeEl.textContent = 'OFF-AXIS / RETURNING';
-    } else if (projectionModeEl) {
-        projectionModeEl.textContent = 'OFF-AXIS / 3D SHOWCASE';
-    }
 }
 
 function onWindowResize() {
-    renderer.setSize(window.innerWidth, window.innerHeight);
+    resizeRenderer();
 }
 
-function animate(timeMs = 0) {
-    requestAnimationFrame(animate);
+function resizeRenderer() {
+    const targetAspect = CONFIG.SCREEN_WIDTH_WORLD / CONFIG.SCREEN_HEIGHT_WORLD;
+    let width = window.innerWidth;
+    let height = window.innerHeight;
 
-    updateViewer();
-    updateShowcase(timeMs);
-    updateDebugInfo();
+    if (width / height > targetAspect) {
+        width = height * targetAspect;
+    } else {
+        height = width / targetAspect;
+    }
 
-    renderer.render(scene, camera);
+    renderer.setSize(Math.floor(width), Math.floor(height));
 }
-
-init();
