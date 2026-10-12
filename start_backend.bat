@@ -1,5 +1,5 @@
 @echo off
 cd /d "%~dp0"
 echo Starting Perspective Ads Backend...
-python backend\main.py
+py -3.10 backend\main.py
 pause

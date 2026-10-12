@@ -104,7 +104,7 @@ pip install -r backend/requirements.txt
 ### 2. バックエンドを起動
 
 ```bash
-python backend/main.py
+py -3.10 backend/main.py
 ```
 
 Windowsでは `start_backend.bat` でも起動できます。
@@ -112,7 +112,7 @@ Windowsでは `start_backend.bat` でも起動できます。
 ### 3. ブラウザで開く
 
 ```text
-http://localhost:8000/view/
+http://localhost:8000/view/index.html
 ```
 
 Windowsでは `open_frontend.bat` でも開けます。
@@ -133,3 +133,5 @@ Windowsでは `open_frontend.bat` でも開けます。
 技育展2026向けの現行開発は `geekten-2026` ブランチです。
 
 ポスター画像を前景レイヤー化していた旧PoCは、削除せず `archive/layered-poster-prototype` ブランチに保存しています。
+
+GitHubのリポジトリトップで最新状態を見せる場合は、`geekten-2026` を default branch にするか、`main` を `geekten-2026` へ fast-forward します。公開済み履歴を書き換えずに整理するなら、まずこのどちらかで入口をそろえます。
