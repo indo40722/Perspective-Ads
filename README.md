@@ -1,39 +1,20 @@
-# Perspective Ads Project
+# Perspective Ads — 初期プロトタイプ
 
-## 戦略コンセプト：A+B ハイブリッド（Ordinary Ad comes alive）
-本プロジェクトは、以下の2つのアプローチを統合した「ハイブリッド型」の体験を提供します。
+**現在の開発版は [`geekten-2026` ブランチ](https://github.com/indo40722/Perspective-Ads/tree/geekten-2026) にあります。**
 
-1.  **通常時（Poster Mode / Plan B）**:
-    *   一見すると普通の2Dポスターやサイネージ広告。
-    *   既存の広告素材（画像データ等）をそのまま活用可能で、広告主への導入ハードルを下げる。
-2.  **体験時（3D Mode / Plan A）**:
-    *   ユーザーが近づいたり覗き込んだりすると、奥行きが生まれ3D空間化する。
-    *   更に角度を変えると、障害物の裏に隠された「クーポン」や「特典」を発見できる。
+Perspective Adsは、見る人が少し横に動くことで、広告の奥に隠れた情報を発見できるデジタルサイネージの試作です。
 
-**体験フロー**:
-`「ただのポスターかと思った（油断）」→「近づいたら奥行きが出た（驚き）」→「覗き込んだらクーポン見つけた（報酬）」`
+この `main` ブランチは、2026年3月ごろに作成した**初期プロトタイプの記録**として残しています。技育展2026向けの現行版とは実装が異なります。
 
-## プロジェクト構造
-このプロジェクトは、Python (Backend) と JavaScript/Three.js (Frontend) で構成されています。
+## このブランチで試したこと
 
-### ディレクトリ構成 (予定)
-```
-Perspective_ads/
-├── docs/               # ドキュメント (要件定義, ユースケース)
-├── backend/            # Python バックエンド
-│   ├── app.py          # エントリーポイント
-│   ├── detector.py     # 顔認識・視線追跡ロジック (MediaPipe)
-│   └── requirements.txt
-├── frontend/           # Web フロントエンド
-│   ├── index.html
-│   ├── style.css
-│   ├── main.js         # Three.js ロジック
-│   └── assets/         # 3Dモデル, 画像など
-├── README.md
-└── .gitignore
-```
+- WebカメラとMediaPipe Face Meshによる顔位置の取得
+- PythonからSocket.IOを使った座標の送信
+- Three.jsでの視点移動に合わせた簡易的なパララックス表示
+- ポスターの裏に置いた疑似QR画像の表示
 
-## 開発の進め方
-1. `docs/` 内の要件定義書に従い実装を進めます。
-2. まずは `backend/` でWebカメラから顔座標を取得し、WebSocketで送信する部分を作成します。
-3. 次に `frontend/` でThree.jsのシーンを構築し、受信したデータでカメラを動かす実装を行います。
+現在の `geekten-2026` 版では、既存ポスター画像を切り替える方式ではなく、Three.js上の3Dバーガーと、その奥に置いた特典を覗く構成へ変更しています。視点に合わせたOff-Axis Projectionも初期実装しています。
+
+**作品の説明・実装状況・起動方法は [現行版のREADME](https://github.com/indo40722/Perspective-Ads/blob/geekten-2026/README.md) を参照してください。**
+
+過去の試作を残しているのは、方式の違いや開発中の試行錯誤を確認できるようにするためです。
