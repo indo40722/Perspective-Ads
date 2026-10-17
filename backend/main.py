@@ -13,7 +13,7 @@ import time
 CAMERA_ID = 0  # WebカメラのID
 WIDTH, HEIGHT = 640, 480
 
-# --- グローバル変数 (スレッド間共有) ---
+# --- スレッド間で共有する状態 ---
 latest_data = {
     "x": 0.0,
     "y": 0.0,
@@ -24,14 +24,15 @@ latest_data = {
 }
 latest_data_lock = threading.Lock()
 camera_stop_event = threading.Event()
+camera_status = "starting"
 
-# --- FastAPI & Socket.IO セットアップ ---
+# --- FastAPIとSocket.IOの設定 ---
 sio = socketio.AsyncServer(async_mode='asgi', cors_allowed_origins='*')
 app = FastAPI()
 sio_app = socketio.ASGIApp(sio, app)
 
-# フロントエンドの静的ファイル配信設定
-# backend/main.py から見て ../frontend/dist を配信する
+# フロントエンドの静的ファイルを配信する。
+# backend/main.pyから見て../frontend/distを参照する。
 frontend_dir = os.path.join(os.path.dirname(__file__), '../frontend/dist')
 if os.path.isdir(frontend_dir):
     app.mount("/view", StaticFiles(directory=frontend_dir, html=True), name="view")
@@ -46,12 +47,48 @@ async def root():
 @sio.event
 async def connect(sid, environ):
     print(f"Client connected: {sid}")
+    await sio.emit("camera_status", {"status": camera_status}, to=sid)
 
 @sio.event
 async def disconnect(sid):
     print(f"Client disconnected: {sid}")
 
-# --- カメラ処理関数 (別スレッドで実行) ---
+def update_camera_status(status):
+    global camera_status
+
+    if camera_status != status:
+        camera_status = status
+        print(f"カメラ状態: {status}")
+
+
+def open_camera():
+    if os.name == "nt":
+        backends = [
+            ("DirectShow", cv2.CAP_DSHOW),
+            ("Media Foundation", cv2.CAP_MSMF),
+        ]
+    else:
+        backends = [("標準方式", cv2.CAP_ANY)]
+
+    for backend_name, backend in backends:
+        cap = cv2.VideoCapture(CAMERA_ID, backend)
+        if not cap.isOpened():
+            cap.release()
+            continue
+
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, WIDTH)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, HEIGHT)
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        success, image = cap.read()
+        if success:
+            print(f"カメラを起動しました。使用方式: {backend_name}")
+            return cap, image
+        cap.release()
+
+    return None, None
+
+
+# --- カメラ処理を別スレッドで実行する ---
 def camera_loop():
     global latest_data
 
@@ -64,57 +101,71 @@ def camera_loop():
         min_tracking_confidence=0.5
     )
 
-    cap = cv2.VideoCapture(CAMERA_ID)
-    if not cap.isOpened():
-        print("カメラを開けませんでした。")
-        return
-
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, WIDTH)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, HEIGHT)
-    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-    print("カメラを起動しました。")
-
     frame_id = 0
     while not camera_stop_event.is_set():
-        success, image = cap.read()
-        if not success:
-            time.sleep(0.01)
+        cap, image = open_camera()
+        if cap is None:
+            update_camera_status("unavailable")
+            time.sleep(2)
             continue
 
-        image.flags.writeable = False
-        image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        results = face_mesh.process(image_rgb)
+        update_camera_status("ready")
+        read_failures = 0
+        while not camera_stop_event.is_set():
+            if image is None:
+                success, image = cap.read()
+                if not success:
+                    read_failures += 1
+                    if read_failures >= 10:
+                        update_camera_status("unavailable")
+                        break
+                    time.sleep(0.01)
+                    continue
 
-        detected = bool(results.multi_face_landmarks)
-        x = 0.0
-        y = 0.0
-        z = 0.0
-        if detected:
-            nose = results.multi_face_landmarks[0].landmark[4]
-            x = (nose.x - 0.5) * 2
-            y = (nose.y - 0.5) * 2
-            z = nose.z
+            read_failures = 0
+            image.flags.writeable = False
+            image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            results = face_mesh.process(image_rgb)
 
-        frame_id += 1
-        with latest_data_lock:
-            latest_data = {
-                "x": x,
-                "y": y,
-                "z": z,
-                "detected": detected,
-                "frame_id": frame_id,
-                "updated_at": time.monotonic(),
-            }
+            detected = bool(results.multi_face_landmarks)
+            x = 0.0
+            y = 0.0
+            z = 0.0
+            if detected:
+                nose = results.multi_face_landmarks[0].landmark[4]
+                x = (nose.x - 0.5) * 2
+                y = (nose.y - 0.5) * 2
+                z = nose.z
 
-    cap.release()
+            frame_id += 1
+            with latest_data_lock:
+                latest_data = {
+                    "x": x,
+                    "y": y,
+                    "z": z,
+                    "detected": detected,
+                    "frame_id": frame_id,
+                    "updated_at": time.monotonic(),
+                }
+
+            image = None
+
+        cap.release()
+        if not camera_stop_event.is_set():
+            time.sleep(2)
     face_mesh.close()
 
-# --- ブロードキャストループ (非同期) ---
+# --- 検出データとカメラ状態を配信する ---
 async def broadcast_loop():
     last_frame_id = 0
     last_detected = False
+    last_camera_status = None
 
     while True:
+        if camera_status != last_camera_status:
+            last_camera_status = camera_status
+            await sio.emit("camera_status", {"status": camera_status})
+
         with latest_data_lock:
             data_to_send = latest_data.copy()
 
