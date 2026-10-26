@@ -4,11 +4,14 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "build": "vite build"
+    "dev": "vite",
+    "build": "vite build",
+    "test": "node --test src/discovery.test.js src/projection.test.js src/photoInteraction.test.js src/couponUrl.test.js"
   },
   "dependencies": {
     "react": "19.3.0",
     "react-dom": "19.3.0",
+    "qrcode": "^1.5.4",
     "socket.io-client": "4.8.4",
     "three": "0.128.0"
   },

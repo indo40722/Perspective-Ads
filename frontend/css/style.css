@@ -1,212 +1,654 @@
+:root {
+    color-scheme: dark;
+    font-family: "Yu Gothic UI", "Meiryo", sans-serif;
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    color: #f8f3e9;
+    background: #151816;
+}
+
+* {
+    box-sizing: border-box;
+}
+
 html,
-body {
+body,
+#root {
     width: 100%;
     height: 100%;
     margin: 0;
     overflow: hidden;
-    background: #080706;
-    color: #f2eadc;
-    font-family: "Yu Gothic UI", "Yu Gothic", "Hiragino Kaku Gothic ProN", sans-serif;
-    user-select: none;
 }
 
-#root {
+button {
+    font: inherit;
+}
+
+.ad-shell {
     position: fixed;
+    inset: 0;
+    overflow: hidden;
+    background: #151816;
+    isolation: isolate;
+}
+
+#container,
+.campaign-overlay {
+    position: absolute;
     inset: 0;
 }
 
 #container {
-    position: fixed;
-    inset: 0;
-    width: 100vw;
-    height: 100vh;
-    z-index: 1;
+    z-index: 0;
+    cursor: grab;
+    touch-action: none;
 }
 
-#container canvas {
-    display: block;
+#container.is-dragging {
+    cursor: grabbing;
+}
+
+.photo-stage {
     position: absolute;
-    top: 50%;
-    left: 50%;
-    max-width: 100vw;
-    max-height: 100vh;
-    transform: translate(-50%, -50%);
+    inset: 0;
+    overflow: hidden;
+    background: #151816;
+    --cut-progress: 0;
+    touch-action: none;
 }
 
-#discovery-hud {
-    position: fixed;
-    left: 50%;
-    bottom: max(14px, calc((100vh - 56.25vw) / 2 + 14px));
-    z-index: 20;
-    width: min(560px, calc(100vw - 32px));
+.coupon-plane {
+    position: absolute;
+    z-index: 1;
+    top: 12%;
+    left: 1%;
+    display: grid;
+    width: min(104px, 30vw);
+    grid-template-columns: minmax(0, 1fr);
+    align-items: center;
+    gap: 6px;
     padding: 0;
-    transform: translateX(-50%);
-    color: #f2eadc;
+    color: #fff9ef;
+    text-decoration: none;
+    opacity: 0;
     pointer-events: none;
-    text-shadow: 0 2px 12px #000, 0 1px 3px #000;
-    transition: opacity 240ms ease, transform 240ms ease;
+    text-shadow: 0 1px 9px rgba(0, 0, 0, 0.78);
+    transform: translate3d(0, -50%, 0);
+    transition: opacity 100ms linear;
+    will-change: opacity, transform;
 }
 
-.discovery-heading {
+.coupon-plane-copy {
+    position: absolute;
+    top: auto;
+    bottom: calc(100% + 6px);
+    left: 0;
     display: flex;
-    align-items: flex-end;
-    justify-content: space-between;
-    gap: 16px;
-    padding-bottom: 10px;
+    min-width: 0;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    width: 100%;
+    text-align: center;
+    text-shadow: 0 1px 8px rgba(0, 0, 0, 0.92);
 }
 
-.discovery-eyebrow {
-    color: #d2956b;
-    font-size: 9px;
-    font-weight: 700;
+.coupon-plane-brand {
+    display: none;
+    color: #e7b675;
+    font: 700 10px Arial, sans-serif;
 }
 
-.discovery-instruction {
-    margin: 5px 0 0;
-    font-size: 14px;
-    font-weight: 700;
+.coupon-plane-title {
+    color: rgba(248, 243, 233, 0.8);
+    font-size: 10px;
     line-height: 1.4;
 }
 
-.discovery-count {
-    flex: 0 0 auto;
-    color: #c6b6a0;
-    font-size: 12px;
-    font-variant-numeric: tabular-nums;
+.coupon-plane-qr,
+.coupon-plane-qr-status {
+    display: block;
+    width: 100%;
+    aspect-ratio: 1;
 }
 
-.discovery-count strong {
-    color: #f2eadc;
-    font-size: 22px;
+.coupon-plane-qr {
+    padding: 4px;
+    background: #fffdf7;
+    box-shadow: 0 2px 14px rgba(0, 0, 0, 0.36);
+    image-rendering: pixelated;
 }
 
-.discovery-steps {
+.coupon-plane-qr[hidden],
+.coupon-plane-qr-status[hidden] {
+    display: none;
+}
+
+.coupon-plane-qr-status {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 18px;
+    place-items: center;
+    padding: 8px;
+    background: rgba(20, 24, 22, 0.86);
+    color: #e7b675;
+    font-size: 10px;
+    text-align: center;
 }
 
-.discovery-step {
-    position: relative;
-    display: grid;
-    grid-template-columns: 24px minmax(0, 1fr) auto;
+.photo-parallax {
+    position: absolute;
+    z-index: 2;
+    inset: -3%;
+    pointer-events: none;
+    will-change: transform;
+}
+
+.product-photo {
+    position: absolute;
+    inset: 0;
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    filter: drop-shadow(0 20px 26px rgba(0, 0, 0, 0.48));
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 680ms ease, transform 920ms cubic-bezier(0.2, 0.72, 0.22, 1);
+    will-change: opacity, transform;
+}
+
+.product-photo.is-active {
+    opacity: 1;
+}
+
+.photo-stage[data-product="steak"][data-stage="断面"] .product-photo[data-photo-index="0"] {
+    opacity: 1;
+    transition-duration: 80ms;
+}
+
+.photo-stage[data-product="steak"][data-stage="断面"] .product-photo[data-photo-index="1"] {
+    opacity: var(--cut-progress);
+    transition-duration: 80ms;
+}
+
+.photo-shade {
+    position: absolute;
+    z-index: 0;
+    inset: 0;
+    background:
+        linear-gradient(90deg, rgba(9, 12, 10, 0.03) 36%, rgba(9, 12, 10, 0.26) 66%, rgba(9, 12, 10, 0.72) 100%),
+        linear-gradient(0deg, rgba(9, 12, 10, 0.5), transparent 28%);
+    pointer-events: none;
+}
+
+.gaze-progress {
+    display: none;
+}
+
+.campaign-overlay {
+    z-index: 1;
+    pointer-events: none;
+}
+
+.campaign-header {
+    position: absolute;
+    top: 28px;
+    right: 38px;
+    left: 38px;
+    display: flex;
     align-items: center;
-    column-gap: 8px;
+    justify-content: space-between;
+    gap: 24px;
+}
+
+.brand-lockup {
+    display: flex;
+    align-items: center;
+    gap: 12px;
     min-width: 0;
-    padding: 8px 0 10px;
-    border-top: 1px solid rgba(239, 222, 198, 0.32);
-    color: #b8aa98;
-    transition: color 180ms ease, border-color 180ms ease;
+    transition: opacity 180ms ease;
 }
 
-.discovery-number {
-    color: #a38b74;
-    font-family: Georgia, "Yu Mincho", serif;
-    font-size: 13px;
-    font-variant-numeric: tabular-nums;
+.ad-shell.has-coupon-reveal .brand-lockup {
+    opacity: 0;
 }
 
-.discovery-name {
+.brand-mark {
     display: grid;
-    min-width: 0;
-    gap: 2px;
-}
-
-.discovery-direction {
-    font-size: 9px;
-    line-height: 1.2;
-}
-
-.discovery-name strong {
-    overflow: hidden;
-    color: #e7ddcf;
+    width: 34px;
+    height: 34px;
+    place-items: center;
+    background: #b84632;
+    color: #fff8ec;
+    font-family: Arial, sans-serif;
     font-size: 12px;
-    line-height: 1.35;
+    font-weight: 800;
+}
+
+.brand-name {
+    font-family: Arial, sans-serif;
+    font-size: 13px;
+    font-weight: 800;
+}
+
+.brand-divider {
+    width: 1px;
+    height: 18px;
+    background: rgba(248, 243, 233, 0.4);
+}
+
+.brand-edition {
+    color: rgba(248, 243, 233, 0.76);
+    font-family: Arial, sans-serif;
+    font-size: 10px;
+}
+
+.camera-status {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    max-width: min(360px, 42vw);
+    color: rgba(248, 243, 233, 0.86);
+    font-size: 11px;
+    line-height: 1.5;
+    text-shadow: 0 1px 8px rgba(0, 0, 0, 0.6);
+}
+
+.status-light {
+    flex: 0 0 auto;
+    width: 7px;
+    height: 7px;
+    background: #d99b51;
+}
+
+.camera-status.is-ready .status-light {
+    background: #9dcc9a;
+}
+
+.campaign-copy {
+    position: absolute;
+    top: 47%;
+    right: 8.5%;
+    width: min(390px, 32vw);
+    transform: translateY(-50%);
+    text-shadow: 0 2px 18px rgba(0, 0, 0, 0.58);
+}
+
+.stage-copy {
+    animation: stage-copy-enter 460ms ease both;
+}
+
+.campaign-kicker {
+    margin: 0 0 18px;
+    color: #e7b675;
+    font-family: Arial, sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+}
+
+.campaign-copy h1 {
+    margin: 0;
+    color: #fff9ef;
+    font-size: 42px;
+    font-weight: 600;
+    line-height: 1.36;
+}
+
+.campaign-copy h1 span {
+    display: block;
+}
+
+.campaign-description {
+    max-width: 340px;
+    margin: 18px 0 0;
+    color: rgba(248, 243, 233, 0.86);
+    font-size: 14px;
+    line-height: 1.8;
+}
+
+.campaign-product {
+    margin: 22px 0 0;
+    color: #fff9ef;
+    font-size: 11px;
+    font-weight: 700;
+}
+
+.campaign-product span {
+    color: rgba(248, 243, 233, 0.7);
+    font-weight: 400;
+}
+
+.coupon-plane:focus-visible,
+.reset-view:focus-visible,
+.verification-toggle:focus-visible,
+.verification-reset:focus-visible,
+.screen-record:focus-visible {
+    outline: 2px solid #f1be79;
+    outline-offset: 4px;
+}
+
+.campaign-footer {
+    position: absolute;
+    right: 38px;
+    bottom: 25px;
+    left: 38px;
+    display: flex;
+    align-items: end;
+    gap: 22px;
+    min-height: 36px;
+    color: rgba(248, 243, 233, 0.72);
+    font-size: 9px;
+}
+
+.stage-track {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(66px, 1fr));
+    gap: 14px;
+    width: min(350px, 42vw);
+    margin-right: auto;
+}
+
+.stage-marker {
+    display: grid;
+    gap: 7px;
+    color: rgba(248, 243, 233, 0.56);
+    font-size: 10px;
+}
+
+.stage-rule {
+    display: block;
+    width: 100%;
+    height: 1px;
+    background: rgba(248, 243, 233, 0.42);
+    transition: background 240ms ease, height 240ms ease;
+}
+
+.stage-marker.is-active {
+    color: #fff9ef;
+}
+
+.stage-marker.is-active .stage-rule {
+    height: 2px;
+    background: #e7b675;
+}
+
+.photo-credit {
+    color: rgba(248, 243, 233, 0.62);
+    white-space: nowrap;
+}
+
+.reset-view {
+    flex: 0 0 auto;
+    padding: 5px 0 5px 8px;
+    border: 0;
+    border-bottom: 1px solid rgba(248, 243, 233, 0.58);
+    background: transparent;
+    color: #fff9ef;
+    font-size: 10px;
+    cursor: pointer;
+    pointer-events: auto;
+}
+
+.reset-view:hover {
+    color: #e7b675;
+    border-color: #e7b675;
+}
+
+.verification-toggle {
+    flex: 0 0 auto;
+    min-height: 32px;
+    padding: 0 10px;
+    border: 1px solid rgba(248, 243, 233, 0.42);
+    background: rgba(18, 22, 20, 0.78);
+    color: #fff9ef;
+    font-size: 10px;
+    cursor: pointer;
+    pointer-events: auto;
+}
+
+.verification-toggle:hover,
+.verification-toggle.is-active {
+    border-color: #e7b675;
+    color: #e7b675;
+}
+
+.verification-panel {
+    position: absolute;
+    z-index: 4;
+    top: 78px;
+    left: clamp(300px, 24vw, 330px);
+    width: min(230px, 20vw);
+    max-height: calc(100vh - 120px);
+    overflow: auto;
+    padding: 14px;
+    border: 1px solid rgba(231, 182, 117, 0.55);
+    background: rgba(12, 16, 14, 0.94);
+    color: rgba(248, 243, 233, 0.88);
+    font-size: 11px;
+    line-height: 1.5;
+    pointer-events: auto;
+    box-shadow: 0 10px 32px rgba(0, 0, 0, 0.28);
+}
+
+.verification-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 10px;
+}
+
+.verification-heading p {
+    margin: 0 0 2px;
+    color: #e7b675;
+    font: 700 9px Arial, sans-serif;
+}
+
+.verification-heading h2 {
+    margin: 0;
+    color: #fff9ef;
+    font-size: 15px;
+    font-weight: 600;
+}
+
+.recording-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: #ff8b72;
+    font-size: 10px;
+}
+
+.recording-indicator::before {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #ff654f;
+    content: "";
+    animation: recording-pulse 1.2s ease-in-out infinite;
+}
+
+.verification-states {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+    margin: 0 0 12px;
+    padding: 9px 0;
+    border-top: 1px solid rgba(248, 243, 233, 0.16);
+    border-bottom: 1px solid rgba(248, 243, 233, 0.16);
+}
+
+.verification-states div {
+    min-width: 0;
+}
+
+.verification-states dt {
+    color: rgba(248, 243, 233, 0.56);
+    font-size: 9px;
+}
+
+.verification-states dd {
+    overflow: hidden;
+    margin: 2px 0 0;
+    color: #fff9ef;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-.discovery-state {
-    color: #9a8876;
-    font-size: 9px;
-    white-space: nowrap;
+.verification-meters {
+    display: grid;
+    gap: 4px;
+    margin-bottom: 12px;
 }
 
-.discovery-meter {
-    position: absolute;
-    right: 0;
-    bottom: -1px;
-    left: 0;
-    height: 2px;
-    background: #d17a55;
-    transform: scaleX(0);
-    transform-origin: left center;
-    transition: transform 80ms linear;
-}
-
-.discovery-step.is-active,
-.discovery-step.is-found {
-    border-color: rgba(209, 122, 85, 0.82);
-    color: #f2eadc;
-}
-
-.discovery-step.is-active .discovery-state,
-.discovery-step.is-found .discovery-state {
-    color: #e2a27c;
-}
-
-.discovery-step.is-found .discovery-number {
-    color: #e2a27c;
-}
-
-.discovery-reveal {
+.verification-meters div,
+.verification-range span {
     display: flex;
     align-items: center;
-    gap: 10px;
-    min-height: 16px;
-    margin: 9px 0 0;
-    color: #e5d5c2;
-    font-size: 11px;
-    line-height: 1.4;
-    animation: discovery-reveal-in 320ms ease both;
+    justify-content: space-between;
+    gap: 12px;
 }
 
-.discovery-reveal span {
-    flex: 0 0 auto;
-    color: #d2956b;
-    font-size: 9px;
-    font-weight: 700;
+.verification-meters strong,
+.verification-range strong {
+    color: #fff9ef;
+    font-weight: 600;
 }
 
-.discovery-reveal.is-complete {
-    color: #f2eadc;
-}
-
-.discovery-finish-meter {
-    height: 2px;
-    margin-top: 8px;
-    background: rgba(239, 222, 198, 0.2);
-}
-
-.discovery-finish-meter span {
+.verification-meters progress {
     display: block;
     width: 100%;
-    height: 100%;
-    background: #d17a55;
-    transform: scaleX(0);
-    transform-origin: left center;
-    transition: transform 80ms linear;
+    height: 4px;
+    margin: 0 0 3px;
+    border: 0;
+    accent-color: #e7b675;
 }
 
-#discovery-hud.is-hidden {
-    opacity: 0;
-    transform: translate(-50%, 8px);
+.verification-mode {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 30px;
+    margin-bottom: 4px;
+    color: #fff9ef;
+    cursor: pointer;
 }
 
-@keyframes discovery-reveal-in {
+.verification-mode input {
+    width: 15px;
+    height: 15px;
+    margin: 0;
+    accent-color: #e7b675;
+}
+
+.verification-range {
+    display: grid;
+    gap: 3px;
+    margin: 7px 0;
+    color: rgba(248, 243, 233, 0.72);
+}
+
+.verification-range input {
+    width: 100%;
+    margin: 2px 0;
+    accent-color: #e7b675;
+}
+
+.verification-range input:disabled {
+    opacity: 0.42;
+}
+
+.verification-reset,
+.screen-record {
+    width: 100%;
+    min-height: 34px;
+    margin-top: 7px;
+    border: 1px solid rgba(248, 243, 233, 0.32);
+    background: transparent;
+    color: #fff9ef;
+    font: inherit;
+    cursor: pointer;
+}
+
+.screen-record {
+    border-color: #e7b675;
+    background: rgba(231, 182, 117, 0.12);
+}
+
+.screen-record.is-recording {
+    border-color: #ff8b72;
+    color: #ffb0a0;
+}
+
+.screen-record:disabled {
+    opacity: 0.68;
+    cursor: progress;
+}
+
+.verification-reset:hover,
+.screen-record:hover {
+    background: rgba(248, 243, 233, 0.1);
+}
+
+.recording-note,
+.verification-current {
+    margin: 7px 0 0;
+    color: rgba(248, 243, 233, 0.58);
+    font-size: 9px;
+}
+
+.recording-note {
+    min-height: 14px;
+}
+
+.verification-current {
+    padding-top: 7px;
+    border-top: 1px solid rgba(248, 243, 233, 0.16);
+    color: #e7b675;
+}
+
+.debug-panel {
+    position: absolute;
+    top: 78px;
+    left: 38px;
+    min-width: 220px;
+    padding: 12px 14px;
+    border: 1px solid rgba(231, 182, 117, 0.5);
+    background: rgba(9, 13, 11, 0.9);
+    color: rgba(248, 243, 233, 0.82);
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 10px;
+    line-height: 1.7;
+}
+
+.debug-panel p {
+    display: flex;
+    justify-content: space-between;
+    gap: 18px;
+    margin: 2px 0;
+}
+
+.debug-panel strong {
+    color: #fff9ef;
+    font-weight: 600;
+}
+
+@keyframes stage-copy-enter {
     from {
         opacity: 0;
-        transform: translateY(5px);
+        transform: translateX(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+@keyframes reward-enter {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
     }
     to {
         opacity: 1;
@@ -214,195 +656,302 @@ body {
     }
 }
 
-#peek-hint.is-hidden {
-    opacity: 0;
-    transform: translate(-50%, 8px);
+@keyframes recording-pulse {
+    50% {
+        opacity: 0.35;
+    }
 }
 
-#reward-overlay {
-    position: fixed;
-    inset: 0;
-    z-index: 40;
-    display: grid;
-    place-items: center;
-    background: rgba(8, 7, 6, 0);
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 240ms ease, background 240ms ease;
-}
-
-#reward-overlay.is-visible {
-    opacity: 1;
-    background: rgba(8, 7, 6, 0.72);
-}
-
-.reward-panel {
-    position: relative;
-    width: min(380px, calc(100vw - 48px));
-    padding: 28px 28px 22px;
-    border: 1px solid rgba(193, 150, 109, 0.72);
-    border-radius: 3px;
-    background: #15120f;
-    box-shadow: 0 24px 76px rgba(0, 0, 0, 0.52);
-    text-align: center;
-    transform: translateY(12px);
-    transition: transform 280ms cubic-bezier(.2, .8, .2, 1);
-}
-
-.reward-panel::before {
-    position: absolute;
-    top: 0;
-    left: 28px;
-    width: 44px;
-    height: 3px;
-    background: #bf6946;
-    content: "";
-}
-
-#reward-overlay.is-visible .reward-panel {
-    transform: translateY(0);
-}
-
-.reward-kicker {
-    color: #c99e76;
-    font-size: 13px;
-    font-weight: 700;
-}
-
-.reward-discount {
-    margin: 12px 0 16px;
-    color: #f2eadc;
-    font-family: Georgia, "Yu Mincho", serif;
-    font-size: 56px;
-    font-weight: 700;
-    line-height: 1;
-    white-space: nowrap;
-}
-
-.reward-summary {
-    margin: 8px 0 0;
-    color: #e4d7c5;
-    font-size: 13px;
-    font-weight: 600;
-}
-
-.reward-panel img {
-    display: block;
-    width: 180px;
-    max-width: calc(100% - 32px);
-    aspect-ratio: 1 / 1;
-    margin: 0 auto;
-    padding: 8px;
-    border-radius: 2px;
-    background: #fff;
-    object-fit: contain;
-}
-
-.reward-caption {
-    margin-top: 14px;
-    color: #e4d7c5;
-    font-size: 14px;
-    font-weight: 700;
-    line-height: 1.5;
-}
-
-.reward-reset {
-    margin-top: 10px;
-    color: #958575;
-    font-size: 11px;
-}
-
-#debug-info {
-    position: fixed;
-    top: max(12px, calc((100vh - 56.25vw) / 2 + 12px));
-    left: 12px;
-    z-index: 50;
-    min-width: 205px;
-    padding: 10px 12px;
-    border: 1px solid rgba(193, 150, 109, 0.42);
-    border-radius: 3px;
-    background: rgba(12, 10, 8, 0.82);
-    color: #eee3d2;
-    font-family: Consolas, "Courier New", monospace;
-    font-size: 12px;
-    line-height: 1.35;
-    pointer-events: none;
-}
-
-#debug-info p {
-    margin: 2px 0;
-}
-
-#debug-info.is-hidden {
-    display: none;
-}
-
-#status,
-#projection-mode {
-    font-weight: 700;
-}
-
-@media (max-width: 480px) {
-    #discovery-hud {
-        width: calc(100vw - 36px);
+@media (max-width: 760px) {
+    .campaign-header {
+        top: 18px;
+        right: 20px;
+        left: 20px;
     }
 
-    .discovery-heading {
-        padding-bottom: 7px;
+    .brand-lockup {
+        gap: 8px;
     }
 
-    .discovery-instruction {
-        font-size: 12px;
+    .brand-mark {
+        width: 30px;
+        height: 30px;
     }
 
-    .discovery-steps {
-        gap: 12px;
+    .brand-edition {
+        font-size: 9px;
     }
 
-    .discovery-step {
-        grid-template-columns: 18px minmax(0, 1fr) auto;
-        column-gap: 6px;
-    }
-
-    .discovery-name strong {
-        font-size: 11px;
-    }
-
-    .discovery-reveal {
-        gap: 7px;
+    .camera-status {
+        max-width: 46vw;
         font-size: 10px;
     }
 
-    .reward-panel {
-        padding: 24px 20px 18px;
+    .campaign-copy {
+        right: 5%;
+        width: min(360px, 42vw);
     }
 
-    .reward-discount {
-        font-size: 42px;
+    .campaign-copy h1 {
+        font-size: 34px;
+    }
+
+    .campaign-description {
+        font-size: 12px;
+    }
+
+    .campaign-footer {
+        right: 20px;
+        bottom: 17px;
+        left: 20px;
+        gap: 14px;
+    }
+
+    .stage-track {
+        width: min(310px, 48vw);
+        gap: 10px;
     }
 }
 
-@media (orientation: portrait) {
-    #discovery-hud {
-        bottom: max(18px, calc((100vh - 56.25vw) / 2 - 132px));
+@media (min-width: 761px) and (max-width: 900px) and (orientation: landscape) {
+    .verification-panel {
+        top: 72px;
+        right: 14px;
+        left: auto;
+        width: min(280px, calc(100vw - 28px));
     }
 }
 
-@media (orientation: landscape) {
-    #discovery-hud {
-        top: max(14px, calc((100vh - 56.25vw) / 2 - 132px));
+@media (max-width: 560px), (orientation: portrait) {
+    .coupon-plane {
+        top: 24%;
+        left: 4%;
+        width: min(108px, 24vw, 11vh);
+        grid-template-columns: 1fr;
+        gap: 0;
+    }
+
+    .coupon-plane-copy {
+        position: absolute;
+        top: -28px;
+        left: 0;
+        width: max-content;
+        gap: 2px;
+        padding: 0;
+        border: 0;
+    }
+
+    .coupon-plane-title {
+        font-size: 9px;
+    }
+
+    .coupon-plane-qr,
+    .coupon-plane-qr-status {
+        width: min(108px, 24vw, 11vh);
+    }
+
+    .coupon-plane-qr-status {
+        font-size: 9px;
+    }
+
+    .photo-parallax {
+        inset: 3% 0 auto;
+        height: 41%;
+    }
+
+    .product-photo {
+        object-fit: contain;
+        scale: 0.68;
+    }
+
+    .photo-stage[data-product="steak"] .product-photo {
+        translate: 14% 0;
+    }
+
+    .campaign-header {
+        align-items: flex-start;
+    }
+
+    .camera-status {
+        position: absolute;
+        top: 42px;
+        right: 0;
+        max-width: min(240px, 68vw);
+        justify-content: flex-end;
+        text-align: right;
+    }
+
+    .photo-shade {
+        background: linear-gradient(0deg, rgba(9, 12, 10, 0.78), rgba(9, 12, 10, 0.08) 42%, transparent 68%);
+    }
+
+    .campaign-copy {
+        top: 46%;
+        right: 6%;
         bottom: auto;
+        left: 6%;
+        width: auto;
+        transform: none;
+    }
+
+    .campaign-kicker {
+        margin-bottom: 8px;
+        font-size: 12px;
+    }
+
+    .campaign-copy h1 {
+        font-size: 34px;
+        line-height: 1.25;
+    }
+
+    .campaign-description {
+        max-width: 560px;
+        margin-top: 9px;
+        font-size: 13px;
+        line-height: 1.55;
+    }
+
+    .campaign-product {
+        margin-top: 9px;
+        font-size: 11px;
+    }
+
+    .campaign-footer {
+        right: 16px;
+        bottom: 17px;
+        left: 16px;
+        display: block;
+    }
+
+    .stage-track {
+        width: calc(100% - 104px);
+        gap: 14px;
+    }
+
+    .stage-marker {
+        gap: 7px;
+        font-size: 11px;
+    }
+
+    .photo-credit,
+    .reset-view {
+        display: none;
+    }
+
+    .verification-toggle {
+        position: absolute;
+        right: 0;
+        bottom: 0;
+        min-height: 34px;
+    }
+
+    .verification-panel {
+        top: auto;
+        right: 12px;
+        bottom: 68px;
+        left: 12px;
+        width: auto;
+        max-height: min(54vh, 470px);
+        padding: 12px;
+    }
+
+    .stage-rule {
+        height: 2px;
+    }
+
+    .debug-panel {
+        top: 82px;
+        left: 18px;
+        min-width: 200px;
+        padding: 9px 11px;
+        font-size: 9px;
+    }
+}
+
+@media (max-width: 420px) and (max-height: 900px) and (orientation: portrait) {
+    .campaign-copy {
+        top: 43%;
+        right: 5%;
+        left: 5%;
+    }
+
+    .campaign-copy h1 {
+        font-size: 29px;
+    }
+
+    .campaign-description {
+        font-size: 12px;
+    }
+
+    .stage-track {
+        gap: 8px;
+    }
+
+    .stage-marker {
+        font-size: 9px;
+    }
+}
+
+@media (max-height: 720px) and (orientation: portrait) {
+    .coupon-plane-qr,
+    .coupon-plane-qr-status {
+        width: min(92px, 22vw, 12vh);
+    }
+}
+
+@media (min-height: 1000px) and (orientation: portrait) {
+    .photo-parallax {
+        inset: 3% 0 auto;
+        height: 41%;
+    }
+
+    .campaign-copy {
+        top: 46%;
+        right: 7%;
+        left: 7%;
+    }
+
+    .campaign-kicker {
+        margin-bottom: 16px;
+        font-size: 16px;
+    }
+
+    .campaign-copy h1 {
+        font-size: 48px;
+    }
+
+    .campaign-description {
+        margin-top: 14px;
+        font-size: 18px;
+    }
+
+    .campaign-product {
+        font-size: 15px;
+    }
+
+    .campaign-footer {
+        right: 5%;
+        bottom: 30px;
+        left: 5%;
+    }
+
+    .stage-marker {
+        font-size: 15px;
     }
 }
 
 @media (prefers-reduced-motion: reduce) {
-    #discovery-hud,
-    .discovery-step,
-    .discovery-meter,
-    .discovery-reveal,
-    #reward-overlay,
-    .reward-panel {
-        transition-duration: 1ms;
-        animation-duration: 1ms;
+    *,
+    *::before,
+    *::after {
+        scroll-behavior: auto !important;
+        transition-duration: 1ms !important;
+        animation-duration: 1ms !important;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .recording-indicator::before {
+        animation: none;
     }
 }
