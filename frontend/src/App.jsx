@@ -16,6 +16,24 @@ import { createBrowserFaceTracker } from "./browserFaceTracker.js";
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 const browserTrackingEnabled = import.meta.env.VITE_FACE_TRACKING_SOURCE === "browser";
+const browserCameraAutostartKey = "perspective-ads-camera-autostart";
+const browserCameraDeviceKey = "perspective-ads-camera-device";
+
+const readBrowserCameraDeviceId = () => {
+    try {
+        return window.localStorage.getItem(browserCameraDeviceKey) || "";
+    } catch {
+        return "";
+    }
+};
+
+const saveBrowserCameraDeviceId = (deviceId) => {
+    try {
+        if (deviceId) window.localStorage.setItem(browserCameraDeviceKey, deviceId);
+    } catch {
+        // 保存領域が使えない場合も、現在のカメラ操作は続ける。
+    }
+};
 
 const createDemoToken = () => {
     const bytes = new Uint8Array(24);
@@ -63,7 +81,7 @@ export default function App() {
     const [browserCameraBusy, setBrowserCameraBusy] = useState(false);
     const [browserCameraError, setBrowserCameraError] = useState("");
     const [browserCameraDevices, setBrowserCameraDevices] = useState([]);
-    const [browserCameraDeviceId, setBrowserCameraDeviceId] = useState("");
+    const [browserCameraDeviceId, setBrowserCameraDeviceId] = useState(readBrowserCameraDeviceId);
     const [status, setStatus] = useState("カメラ未接続・ドラッグ操作ができます");
     const debugVisibleRef = useRef(false);
     const verificationVisibleRef = useRef(false);
@@ -644,6 +662,7 @@ export default function App() {
         });
 
         let browserTracker = null;
+        let effectDisposed = false;
         if (browserTrackingEnabled) {
             const wasmRoot = new URL("./assets/mediapipe/wasm/", document.baseURI).href;
             const modelUrl = new URL("./assets/mediapipe/blaze_face_full_range.tflite", document.baseURI).href;
@@ -672,15 +691,23 @@ export default function App() {
                 },
             });
             browserCameraControlsRef.current = {
-                start: async (deviceId) => {
+                start: async (deviceId, { automatic = false } = {}) => {
                     setBrowserCameraBusy(true);
                     setBrowserCameraError("");
                     try {
                         const stream = await browserTracker.start({ deviceId });
                         const devices = (await navigator.mediaDevices.enumerateDevices())
                             .filter((device) => device.kind === "videoinput");
+                        const activeDeviceId = stream.getVideoTracks()[0]?.getSettings().deviceId || deviceId || "";
                         setBrowserCameraDevices(devices);
-                        setBrowserCameraDeviceId(stream.getVideoTracks()[0]?.getSettings().deviceId || deviceId || "");
+                        setBrowserCameraDeviceId(activeDeviceId);
+                        saveBrowserCameraDeviceId(activeDeviceId);
+                        try {
+                            window.localStorage.setItem(browserCameraAutostartKey, "1");
+                        } catch {
+                            // 保存領域が使えなくても、カメラはそのまま利用できる。
+                        }
+                        return true;
                     } catch (error) {
                         const message = error?.name === "NotAllowedError"
                             ? "カメラの使用を許可してください"
@@ -693,13 +720,63 @@ export default function App() {
                         cameraConnectedRef.current = false;
                         setCameraConnected(false);
                         setStatus(message);
+                        if (automatic && error?.name === "NotAllowedError") {
+                            try {
+                                window.localStorage.removeItem(browserCameraAutostartKey);
+                            } catch {
+                                // 保存領域が使えない場合は、次回の起動時に再確認する。
+                            }
+                        }
+                        return false;
                     } finally {
                         setBrowserCameraBusy(false);
                     }
                 },
-                stop: () => browserTracker.stop(),
+                stop: ({ forget = true } = {}) => {
+                    if (forget) {
+                        try {
+                            window.localStorage.removeItem(browserCameraAutostartKey);
+                        } catch {
+                            // 保存領域が使えない場合も、カメラ自体は停止する。
+                        }
+                    }
+                    browserTracker.stop();
+                },
                 getStream: () => browserTracker.getStream(),
             };
+
+            const restoreCamera = async () => {
+                let shouldRestore = false;
+                try {
+                    shouldRestore = window.localStorage.getItem(browserCameraAutostartKey) === "1";
+                } catch {
+                    return;
+                }
+                if (!shouldRestore) return;
+                if (!navigator.permissions?.query) {
+                    setBrowserCameraError("このブラウザーでは自動接続を確認できません。「カメラを起動」を押してください");
+                    return;
+                }
+
+                try {
+                    const permission = await navigator.permissions.query({ name: "camera" });
+                    if (effectDisposed) return;
+                    if (permission.state === "granted") {
+                        const started = await browserCameraControlsRef.current.start(readBrowserCameraDeviceId(), { automatic: true });
+                        if (effectDisposed && started) browserTracker.stop({ notify: false });
+                    } else if (permission.state === "denied") {
+                        window.localStorage.removeItem(browserCameraAutostartKey);
+                        setBrowserCameraError("ブラウザーのサイト設定でカメラを許可すると、自動で再接続できます");
+                    } else {
+                        setBrowserCameraError("カメラの許可が必要です。「カメラを起動」を押してください");
+                    }
+                } catch {
+                    if (!effectDisposed) {
+                        setBrowserCameraError("カメラの許可状態を確認できません。「カメラを起動」を押してください");
+                    }
+                }
+            };
+            restoreCamera();
         }
 
         const handlePointerDown = (event) => {
@@ -962,6 +1039,7 @@ export default function App() {
         animationFrameId = requestAnimationFrame(animate);
 
         return () => {
+            effectDisposed = true;
             cancelAnimationFrame(animationFrameId);
             window.clearTimeout(faceLostTimeoutId);
             window.removeEventListener("keydown", handleKeyDown);
@@ -1039,8 +1117,9 @@ export default function App() {
                                 onChange={async (event) => {
                                     const deviceId = event.target.value;
                                     setBrowserCameraDeviceId(deviceId);
+                                    saveBrowserCameraDeviceId(deviceId);
                                     if (cameraConnected) {
-                                        browserCameraControlsRef.current.stop();
+                                        browserCameraControlsRef.current.stop({ forget: false });
                                         await browserCameraControlsRef.current.start(deviceId);
                                     }
                                 }}
