@@ -1371,6 +1371,23 @@ button {
     }
 }
 
+@media (orientation: landscape) and (max-width: 760px) and (max-height: 600px) {
+    .coupon-plane {
+        top: 0;
+        right: 0;
+        bottom: 0;
+        left: 0;
+        width: auto;
+        background: color-mix(in srgb, var(--ad-background) 74%, transparent);
+    }
+
+    .coupon-ticket {
+        grid-template-columns: minmax(0, 1fr) clamp(88px, 28vw, 160px);
+        gap: clamp(8px, 2vw, 16px);
+        padding: clamp(8px, 2vh, 18px) clamp(12px, 4vw, 30px);
+    }
+}
+
 .coupon-copy-part:has(.coupon-copy-text:not([hidden])) {
     height: auto;
     overflow: visible;
@@ -1880,5 +1897,40 @@ button {
 @media (orientation: portrait) and (max-height: 720px) {
     .coupon-ticket {
         grid-template-columns: minmax(0, 1fr) clamp(120px, 26vw, 210px);
+    }
+}
+
+@media (orientation: landscape) and (max-height: 600px) {
+    .coupon-ticket {
+        gap: clamp(3px, 0.6vh, 8px);
+        padding: clamp(8px, 2vh, 20px) clamp(16px, 4vw, 48px);
+    }
+
+    .coupon-ticket-copy {
+        display: grid;
+        height: 100%;
+        min-height: 0;
+        grid-template-rows: repeat(3, minmax(0, 1fr));
+        align-content: stretch;
+        align-items: stretch;
+        gap: clamp(3px, 0.6vh, 8px);
+    }
+
+    .coupon-copy-part {
+        height: 100%;
+        min-height: 0;
+        aspect-ratio: auto;
+        overflow: hidden;
+    }
+
+    .coupon-copy-part:has(.coupon-copy-text:not([hidden])) {
+        height: 100%;
+        overflow: hidden;
+    }
+
+    .coupon-copy-part img {
+        height: 100%;
+        object-fit: contain;
+        object-position: left center;
     }
 }

@@ -1,4 +1,4 @@
-const CACHE_VERSION = "perspective-app-v3";
+const CACHE_VERSION = "perspective-app-v4";
 const CAMPAIGN_CACHE = "perspective-published-v1";
 
 self.addEventListener("install", (event) => {
