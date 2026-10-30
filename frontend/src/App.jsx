@@ -405,6 +405,7 @@ export default function App() {
         let latestFrameId = -1;
         let statusMessage = "カメラ未接続・ドラッグ操作ができます";
         let currentStageIndex = 0;
+        let cutStageTransitionedAt = null;
         let lastJourneyUiKey = "";
         const drawReward = () => {
             const campaignId = campaignRef.current.id;
@@ -747,6 +748,7 @@ export default function App() {
             currentViewerDepthRef.current = 0;
             manualInputUntilRef.current = 0;
             currentStageIndex = 0;
+            cutStageTransitionedAt = null;
             journeyEventIds = createJourneyEventIds();
             const resetJourney = journeyTrackerRef.current.reset();
             setJourneyState(resetJourney);
@@ -875,7 +877,8 @@ export default function App() {
                 drawReward();
             }
 
-            const rewardRevealed = journey.phase === "revealed" && rewardDrawsRef.current.get(campaignRef.current.id)?.result === true;
+            const rewardDrawState = rewardDrawsRef.current.get(campaignRef.current.id);
+            const rewardWon = journey.phase === "revealed" && rewardDrawState?.result === true;
 
             let nextStageIndex = resolvePhotoStage(
                 currentViewerXRef.current,
@@ -887,22 +890,37 @@ export default function App() {
                 CONFIG.DETAIL_APPROACH_EXIT_THRESHOLD,
             );
             if (journey.phase === "revealed") {
-                nextStageIndex = journey.foundDetail === "grill" ? 1 : 2;
+                nextStageIndex = rewardWon || journey.foundDetail === "cut" ? 2 : 1;
             }
 
-            const cutProgress = journey.phase === "revealed"
-                ? journey.foundDetail === "cut" ? 1 : 0
+            if (nextStageIndex !== currentStageIndex) {
+                currentStageIndex = nextStageIndex;
+                if (nextStageIndex === 2) cutStageTransitionedAt = timeMs;
+                else cutStageTransitionedAt = null;
+                showcase.setStage(nextStageIndex);
+                setActiveStageIndex(nextStageIndex);
+            }
+
+            const rewardRevealed = rewardWon
+                && currentStageIndex === 2
+                && cutStageTransitionedAt !== null
+                && timeMs - cutStageTransitionedAt >= CONFIG.COUPON_AFTER_CUT_HOLD_MS;
+
+            const cutProgress = rewardWon || (journey.phase === "revealed" && journey.foundDetail === "cut")
+                ? 1
                 : getCutProgress(
                     currentViewerDepthRef.current,
                     CONFIG.CUT_REVEAL_START_PROGRESS,
                     CONFIG.CUT_REVEAL_COMPLETE_PROGRESS,
                 );
             const couponProgress = rewardRevealed ? 1 : 0;
-            const rewardDetail = journey.foundDetail ?? getDetailAtViewer(
-                currentViewerXRef.current,
-                currentViewerDepthRef.current,
-                CONFIG
-            );
+            const rewardDetail = rewardWon
+                ? "cut"
+                : journey.foundDetail ?? getDetailAtViewer(
+                    currentViewerXRef.current,
+                    currentViewerDepthRef.current,
+                    CONFIG
+                );
             const rewardQr = rewardDetail ? couponQrMapRef.current[rewardDetail] : null;
             showcase.setCutProgress(cutProgress);
             showcase.setRewardReveal({
@@ -916,12 +934,6 @@ export default function App() {
                 failed: Boolean(couponQrMapRef.current.failed),
             });
             showcase.setGazeProgress(journey.progress);
-
-            if (nextStageIndex !== currentStageIndex) {
-                currentStageIndex = nextStageIndex;
-                showcase.setStage(nextStageIndex);
-                setActiveStageIndex(nextStageIndex);
-            }
 
             if (debugVisibleRef.current && timeMs - lastDebugTime > 100) {
                 lastDebugTime = timeMs;
