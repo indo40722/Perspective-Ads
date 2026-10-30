@@ -2,7 +2,7 @@ project_id = "perspective-ads"
 
 [api]
 enabled = true
-schemas = ["public"]
+schemas = ["public", "graphql_public"]
 extra_search_path = ["public", "extensions"]
 max_rows = 1000
 
@@ -13,3 +13,10 @@ major_version = 17
 [studio]
 enabled = true
 port = 54323
+
+[auth]
+site_url = "https://perspective-ads-psi.vercel.app"
+additional_redirect_urls = [
+    "https://perspective-ads-psi.vercel.app/admin.html",
+    "https://perspective-ads-gekinotane.vercel.app/admin.html",
+]

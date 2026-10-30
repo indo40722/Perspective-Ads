@@ -89,11 +89,17 @@ VITE_SUPABASE_PUBLISHABLE_KEY=<SupabaseのPublishable key>
 VITE_FACE_TRACKING_SOURCE=browser
 ```
 
-ブラウザーへ設定するのはPublishable keyだけです。`service_role`キーやSupabaseのSecret keyは設定しません。Vercelの`perspective-ads`プロジェクトを作成し、ビルドルートを`frontend`に設定済みです。SupabaseのURL・Publishable key・ブラウザー顔追跡設定もProductionとPreviewへ登録済みです。SupabaseのAuthentication URL Configurationには、公開後の`https://perspective-ads.vercel.app`と`/admin.html`をメール確認後の許可URLとして登録してください。
+ブラウザーへ設定するのはPublishable keyだけです。`service_role`キーやSupabaseのSecret keyは設定しません。Vercelの`perspective-ads`プロジェクトに環境変数をProductionとPreviewへ登録済みです。SupabaseのAuthentication URL Configurationには、公開サイトの`https://perspective-ads-psi.vercel.app`と別名URLの`https://perspective-ads-gekinotane.vercel.app`を設定済みです。
 
 管理画面で会社アカウントを作成し、広告を保存・公開すると、広告ごとのURLからサイネージを開けます。同じURLを複数端末で使えます。各端末はオンライン時に広告と画像をブラウザーへ自動保存し、その後はネットワークが切れても保存済み広告を表示します。保存は端末・ブラウザーごとです。広告の編集と特典コードの利用確認には通信が必要です。
 
-SupabaseとVercelのプロジェクト作成、Vercel環境変数の登録、ビルド設定は完了しています。DBマイグレーション、SupabaseのAuthentication許可URL設定、本番デプロイは未完了です。クラウドモードの実装はこのリポジトリにあります。既存のローカルSQLiteデータは自動移行されません。必要な場合は別途移行してください。
+SupabaseとVercelのプロジェクト作成、DBマイグレーション、Vercel環境変数、Authの許可URL、本番デプロイは完了しています。公開URLは[Perspective Ads](https://perspective-ads-psi.vercel.app/)です。会社アカウントは管理画面から新規作成してください。GitHubの自動デプロイは未接続のため、更新後は次のコマンドで再デプロイします。
+
+```powershell
+npx vercel --prod --yes --scope gekinotane
+```
+
+既存のローカルSQLiteデータは自動移行されません。必要な場合は別途移行してください。
 
 ### カメラを使わずに試す
 
@@ -138,7 +144,7 @@ py -3.10 -m unittest discover -s backend -p "test_*.py"
 
 - ReactとCSSで写真レイヤー、体験進行、特典表示を管理
 - ローカルモードはOpenCV・MediaPipe Face Mesh・FastAPI・Socket.IO・SQLiteを使い、ブラウザー追跡モードではMediaPipe Face DetectorをWeb Worker内で動かす
-- クラウドモードはSupabase Auth、会社別RLS、Postgres、Storageで広告とイベントを共有し、Vercelはフロントエンドを静的配信する。クラウドプロジェクトと環境変数は設定済みで、DBマイグレーションと公開は未完了
+- クラウドモードはSupabase Auth、会社別RLS、Postgres、Storageで広告とイベントを共有し、Vercelはフロントエンドを静的配信する。プロジェクト、環境変数、マイグレーション、本番公開まで設定済み
 - SQLiteで見どころ発見・QRページ訪問・受取・利用確認を集計
 - 実際の広告へ進む場合は、広告主の許諾を得た商品写真・コピー・特典へ差し替える
 

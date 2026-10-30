@@ -41,7 +41,7 @@
 - サイネージ画面と必要なJavaScript・CSS・フォントをService Workerでキャッシュする。オフライン時は保存済みの公開広告と画像を表示し、公開中の広告がない、または保存前の場合は初期表示を維持する。
 - `VITE_FACE_TRACKING_SOURCE=browser`を指定すると、ブラウザーからカメラを選んで顔位置を追跡する。カメラ映像は MediaPipe Face Detector の全距離モデルで端末内処理し、映像そのものをAPIへ送信しない。検出処理はWeb Workerで最大約20フレーム/秒に制限し、鼻の位置と顔枠の大きさを広告操作へ渡す。利用者が画面上の「カメラを起動」を押した後だけカメラを開始し、複数カメラがある場合は追跡元を選べる。
 - MediaPipeの顔検出モデルは初期インストール時に保存し、WebAssembly実行ファイルは初回追跡時にService Workerへ保存する。オフラインで顔位置追跡を使う場合は、オンライン中に一度カメラを起動してモデルと実行ファイルを読み込んでおく。
-- Vercelの`perspective-ads`プロジェクトは`frontend`をルートにしてViteでビルドし、`dist`を静的配信する。ブラウザー顔追跡には`VITE_FACE_TRACKING_SOURCE=browser`を設定する。
+- Vercelの`perspective-ads`プロジェクトはリポジトリルートを使い、`vercel.json`から`frontend`をViteでビルドして`frontend/dist`を静的配信する。ブラウザー顔追跡には`VITE_FACE_TRACKING_SOURCE=browser`を設定する。
 - `VITE_SUPABASE_URL`と`VITE_SUPABASE_PUBLISHABLE_KEY`がある場合はクラウドモードにする。管理画面はSupabase Authでログインし、会社を作成する。会社メンバーシップとロールに応じてキャンペーン・素材の読み書きをRLSで制限し、公開済み広告のみ未ログインのサイネージ・受取画面へ読み取りを許可する。ブラウザーへ`service_role`キーやSecret keyを置かない。
 - クラウドモードは広告データをSupabase Postgresへ保存し、画像をStorageへアップロードする。広告URLの`campaign`パラメーターで公開キャンペーンを指定し、同じURLを複数端末に配布できる。サイネージは公開広告と参照画像をオンライン時に各端末のService Workerへ保存し、通信が切れた場合は保存内容を使う。
 - 特典抽選・訪問・見どころ発見・受取・利用確認はSupabase RPCで処理する。利用確認はログインした会社メンバーに限定する。イベントはランダムな識別子で記録し、個人情報を保存しない。
@@ -107,7 +107,7 @@
 - 集計値はイベント件数であり、ユニークな通行人の人数や広告効果を示すものではない。
 - 複数人追跡、視線推定、店舗で使える実クーポンの発行、日次リテンション分析は対象外。コード発行と一度限りの利用確認はデモ内で検証する。クラウド版はキャンペーンURLを端末間で共有するが、端末の登録・割当・状態監視、会社メンバーへの招待機能は未実装。
 - 管理画面で複数広告の素材やテーマを編集できるが、体験の動きは「横へ動く」「前へ近づく」の2方向を基本とする。広告ごとに異なる操作パターンの設定には対応しない。
-- ローカルSQLiteモードには認証がないため、インターネットへ公開しない。クラウドモードはSupabase認証とRLSを使う。Supabase/VercelプロジェクトとVercel環境変数は設定済み。公開前にDBマイグレーション適用、Supabase Authentication許可URL、本番デプロイが必要。
+- ローカルSQLiteモードには認証がないため、インターネットへ公開しない。クラウドモードはSupabase認証とRLSを使う。Supabase/Vercelプロジェクト、DBマイグレーション、Vercel環境変数、Supabase Authentication許可URL、本番デプロイは設定済み。GitHub自動デプロイは未接続で、更新はVercel CLIから行う。
 
 ## 7. 完了条件
 
@@ -156,10 +156,11 @@
 - [ ] 実画面で顔移動に対する反応と文字・写真の重なりを確認
 - [ ] 実機のブラウザー追跡速度とPythonバックエンド追跡速度を同じカメラで比較する
 - [x] 東京リージョンにSupabaseの専用プロジェクトを作成する
-- [x] `gekinotane`にVercelの`perspective-ads`プロジェクトを作成し、`frontend`をビルドルートに設定する
+- [x] `gekinotane`にVercelの`perspective-ads`プロジェクトを作成し、ルートの`vercel.json`から`frontend`をビルドする
 - [x] SupabaseのURL・Publishable key・ブラウザー顔追跡設定をVercelのProduction/Preview環境へ登録する
-- [ ] SupabaseのDBマイグレーションを適用し、RLS・Storage・RPCの実機動作を確認する
-- [ ] Supabase AuthenticationにVercelの公開URLを登録し、メール確認付きアカウント作成を確認する
-- [ ] Vercelへ本番デプロイし、管理ログイン・広告配信を確認する
+- [x] SupabaseのDBマイグレーションを適用し、リモートの適用履歴を確認する
+- [x] Supabase AuthenticationにVercelの公開URLと管理画面のメール確認先を登録する
+- [x] Vercelへ本番デプロイし、公開URLからHTMLが応答することを確認する
+- [ ] 本番画面で会社アカウントを作成し、広告保存・サイネージ配信・オフライン保存を確認する
 - [ ] 広告主の権利確認済み写真と実際に使える特典へ差し替え
 - [ ] 静止広告と視点反応広告の少人数比較
