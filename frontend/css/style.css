@@ -209,6 +209,16 @@ button {
     backdrop-filter: blur(8px);
 }
 
+.browser-camera-control-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 7px;
+    color: rgba(248, 243, 233, 0.9);
+    font-size: 11px;
+}
+
 .browser-camera-control button {
     min-height: 34px;
     padding: 0 13px;
@@ -227,6 +237,16 @@ button {
 .browser-camera-control button:disabled {
     opacity: 0.55;
     cursor: not-allowed;
+}
+
+.browser-camera-control .browser-camera-hide {
+    min-height: 28px;
+    padding: 0 8px;
+    font-size: 10px;
+}
+
+.ad-shell.is-recording .browser-camera-control {
+    display: none;
 }
 
 .browser-camera-control select {

@@ -59,6 +59,7 @@ export default function App() {
     const [recording, setRecording] = useState(false);
     const [recordingStopping, setRecordingStopping] = useState(false);
     const [recordingError, setRecordingError] = useState("");
+    const [browserCameraControlsVisible, setBrowserCameraControlsVisible] = useState(true);
     const [browserCameraBusy, setBrowserCameraBusy] = useState(false);
     const [browserCameraError, setBrowserCameraError] = useState("");
     const [browserCameraDevices, setBrowserCameraDevices] = useState([]);
@@ -73,6 +74,8 @@ export default function App() {
     const browserCameraRecorderRef = useRef(null);
     const browserCameraChunksRef = useRef([]);
     const browserCameraControlsRef = useRef({ start: async () => {}, stop: () => {}, getStream: () => null });
+    const browserCameraControlsVisibleBeforeRecordingRef = useRef(null);
+    const recordingStateRef = useRef(false);
     const socketRef = useRef(null);
     const cameraRecordingIdRef = useRef(null);
     const recordingFilenameBaseRef = useRef("");
@@ -80,6 +83,7 @@ export default function App() {
     const resetViewRef = useRef(() => {});
     debugVisibleRef.current = debugVisible;
     verificationVisibleRef.current = verificationVisible;
+    recordingStateRef.current = recording;
     const sessionIdForCampaign = (campaignId) => {
         if (!campaignSessionsRef.current.has(campaignId)) {
             const storageKey = `perspective-ads-${campaignId}-session`;
@@ -186,8 +190,13 @@ export default function App() {
             mediaRecorderRef.current = null;
             browserCameraRecorderRef.current = null;
             setRecording(false);
+            recordingStateRef.current = false;
             setRecordingStopping(false);
             recordingStoppingRef.current = false;
+            if (browserCameraControlsVisibleBeforeRecordingRef.current !== null) {
+                setBrowserCameraControlsVisible(browserCameraControlsVisibleBeforeRecordingRef.current);
+                browserCameraControlsVisibleBeforeRecordingRef.current = null;
+            }
         }
     };
 
@@ -206,6 +215,8 @@ export default function App() {
             if (browserTrackingEnabled && !browserCameraControlsRef.current.getStream()) {
                 throw new Error("画面とカメラを録画するには、先にカメラを起動してください");
             }
+            browserCameraControlsVisibleBeforeRecordingRef.current = browserCameraControlsVisible;
+            setBrowserCameraControlsVisible(false);
             stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
             const socketId = socketRef.current?.id;
             if (!browserTrackingEnabled && !socketId) throw new Error("カメラに接続してから録画を開始してください");
@@ -256,6 +267,7 @@ export default function App() {
             stream.getVideoTracks()[0]?.addEventListener("ended", () => void stopScreenRecording(), { once: true });
             recorder.start(1000);
             setRecording(true);
+            recordingStateRef.current = true;
         } catch (error) {
             if (recordingId) {
                 const socketId = socketRef.current?.id;
@@ -268,6 +280,11 @@ export default function App() {
             browserCameraRecorderRef.current = null;
             cameraRecordingIdRef.current = null;
             setRecording(false);
+            recordingStateRef.current = false;
+            if (browserCameraControlsVisibleBeforeRecordingRef.current !== null) {
+                setBrowserCameraControlsVisible(browserCameraControlsVisibleBeforeRecordingRef.current);
+                browserCameraControlsVisibleBeforeRecordingRef.current = null;
+            }
             setRecordingError(error?.name === "NotAllowedError" ? "画面共有がキャンセルされました" : error?.message || "画面とカメラの録画を開始できませんでした");
         }
     };
@@ -801,7 +818,11 @@ export default function App() {
 
         const handleKeyDown = (event) => {
             const key = event.key.toLowerCase();
-            if (key === "d") {
+            const activeTag = document.activeElement?.tagName;
+            const isEditing = ["INPUT", "TEXTAREA", "SELECT"].includes(activeTag) || document.activeElement?.isContentEditable;
+            if (key === "c" && !isEditing && !recordingStateRef.current) {
+                setBrowserCameraControlsVisible((value) => !value);
+            } else if (key === "d") {
                 setDebugVisible((value) => !value);
             } else if (key === "v") {
                 setVerificationVisible((value) => !value);
@@ -952,7 +973,7 @@ export default function App() {
         ? activeStage.title.replace("、", "、\n")
         : activeStage.title;
     return (
-        <main className="ad-shell" data-campaign-id={campaign.id} style={{ "--ad-background": campaign.theme?.background || "#24160f", "--campaign-accent": campaign.theme?.accent || "#d8ae73", "--campaign-text": campaign.theme?.text || "#f6eee3" }}>
+        <main className={`ad-shell${recording ? " is-recording" : ""}`} data-campaign-id={campaign.id} style={{ "--ad-background": campaign.theme?.background || "#24160f", "--campaign-accent": campaign.theme?.accent || "#d8ae73", "--campaign-text": campaign.theme?.text || "#f6eee3" }}>
             <div id="container" ref={containerRef} role="region" aria-label={`視点に合わせて${campaign.itemName}の見どころが変わる写真広告`} />
             <div className="campaign-overlay">
                 <section className="campaign-copy" aria-live="polite">
@@ -975,8 +996,19 @@ export default function App() {
                     </div>
                 </section>
 
-                {browserTrackingEnabled && (
+                {browserTrackingEnabled && browserCameraControlsVisible && (
                     <aside className="browser-camera-control" aria-label="ブラウザーのカメラ設定">
+                        <div className="browser-camera-control-heading">
+                            <span>カメラ設定</span>
+                            <button
+                                className="browser-camera-hide"
+                                type="button"
+                                aria-keyshortcuts="C"
+                                onClick={() => setBrowserCameraControlsVisible(false)}
+                            >
+                                撮影表示（Cで戻す）
+                            </button>
+                        </div>
                         <button
                             type="button"
                             aria-pressed={cameraConnected}
