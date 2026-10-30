@@ -6,7 +6,8 @@ import { createShowcase } from "./photoShowcase.js";
 import { createAdJourneyTracker, getDetailAtViewer } from "./adJourney.js";
 import { resolvePhotoStage, getApproachProgress, getCutProgress } from "./photoInteraction.js";
 import { createCouponUrl } from "./couponUrl.js";
-import { readOfflineCampaignSnapshot } from "./offlineCampaign.js";
+import { readOfflineCampaignSnapshot, savePublishedCampaignOffline } from "./offlineCampaign.js";
+import { supabaseConfigured } from "./lib/supabase.js";
 import { STEAK_AD } from "./steakAd.js";
 import { CONFIG } from "./config.js";
 import { normalizedFaceToViewerCm } from "./projection.js";
@@ -29,6 +30,7 @@ export default function App() {
     const campaignRef = useRef(STEAK_AD);
     campaignRef.current = campaign;
     const offlineCampaignRef = useRef(false);
+    const cloudCacheKeyRef = useRef("");
     const campaignSessionsRef = useRef(new Map());
     const rewardDrawsRef = useRef(new Map());
     const journeyTrackerRef = useRef(null);
@@ -290,6 +292,15 @@ export default function App() {
         let cancelled = false;
         const applyCampaign = (nextCampaign, isOffline) => {
             if (cancelled || !nextCampaign?.id) return;
+            const cacheKey = `${nextCampaign.id}:${nextCampaign.updatedAt || ""}`;
+            if (!isOffline && supabaseConfigured && cloudCacheKeyRef.current !== cacheKey) {
+                cloudCacheKeyRef.current = cacheKey;
+                savePublishedCampaignOffline(nextCampaign).catch(() => {
+                    window.setTimeout(() => {
+                        if (cloudCacheKeyRef.current === cacheKey) cloudCacheKeyRef.current = "";
+                    }, 30000);
+                });
+            }
             const current = campaignRef.current;
             if (
                 current.id === nextCampaign.id

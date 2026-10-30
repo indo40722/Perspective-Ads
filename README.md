@@ -36,7 +36,7 @@
 
 保存先はブラウザーとサイトごとです。別のブラウザーや別PCで使う場合は、それぞれでオンライン中に保存してください。`localhost`と`127.0.0.1`、ポート番号が異なるURLも別扱いです。サイトデータを消去すると保存した広告も消えます。QR画像は広告素材として保存されますが、QRの遷移先やクーポンの発行・利用確認には通信が必要です。既定の顔位置追跡では、PC上のバックエンドを起動したままにしてください。オフライン機能は`localhost`・`127.0.0.1`またはHTTPSで動作します。
 
-この管理画面は試作向けで、ログイン認証はありません。インターネットへ公開せず、信頼できるローカル環境で使用してください。QR画像を使う場合は、画像に記録されたリンク先と管理画面のURL欄が一致することを確認してください。
+ローカルバックエンドで使う管理画面にはログイン認証がありません。FastAPIのポートをインターネットへ公開しないでください。Vercelで公開する場合は、Supabaseの環境変数を設定してクラウド管理画面を使います。QR画像を使う場合は、画像に記録されたリンク先と管理画面のURL欄が一致することを確認してください。
 
 ## 起動方法
 
@@ -69,7 +69,31 @@ py -3.10 backend/main.py
 
 ブラウザーでいつものURLを開き、「カメラを起動」を押して使用するカメラを許可します。カメラが複数ある場合は、画面右上の選択欄から切り替えられます。初回は顔検出の実行ファイルをダウンロードするため、オンラインで一度カメラを起動してください。2回目以降は同じブラウザーでオフライン追跡できます。
 
-Vercel用のビルド設定はリポジトリ直下の`vercel.json`にあります。ただし、現在の管理画面と広告・クーポンAPIはローカルバックエンドを前提としています。Supabaseの会社アカウント、認証、広告データ共有、権限設定は未実装なので、認証を付けるまでは管理画面を外部公開しないでください。
+### VercelとSupabaseで会社別広告を共有する
+
+クラウドモードではSupabase Authで管理者を認証し、PostgresのRLSで会社ごとの広告データと素材の操作権限を分けます。公開広告の読み込み、特典抽選・発行、利用確認、イベント記録もSupabaseへ接続します。Vercelは静的画面を配信し、カメラは各サイネージ端末のブラウザーで処理します。カメラ映像はクラウドへ送信しません。
+
+Supabase側のテーブル・権限・Storage設定は`supabase/migrations/`にあります。専用のSupabaseプロジェクトを作成し、プロジェクト参照IDを使って次を実行します。
+
+```powershell
+npx supabase login
+npx supabase link --project-ref <SupabaseのProject ref>
+npx supabase db push
+```
+
+Supabaseのログイン用Personal Access Tokenは自分の端末で入力し、チャットやGitへ貼り付けないでください。Vercelプロジェクトには次の環境変数を登録してからデプロイします。
+
+```text
+VITE_SUPABASE_URL=https://<Project ref>.supabase.co
+VITE_SUPABASE_PUBLISHABLE_KEY=<SupabaseのPublishable key>
+VITE_FACE_TRACKING_SOURCE=browser
+```
+
+ブラウザーへ設定するのはPublishable keyだけです。`service_role`キーやSupabaseのSecret keyは設定しません。SupabaseのAuthentication URL Configurationには、公開後のVercelサイトURLと`/admin.html`をメール確認後の許可URLとして登録してください。
+
+管理画面で会社アカウントを作成し、広告を保存・公開すると、広告ごとのURLからサイネージを開けます。同じURLを複数端末で使えます。各端末はオンライン時に広告と画像をブラウザーへ自動保存し、その後はネットワークが切れても保存済み広告を表示します。保存は端末・ブラウザーごとです。広告の編集と特典コードの利用確認には通信が必要です。
+
+現時点ではSupabase/Vercelのプロジェクト作成、マイグレーション適用、環境変数登録、公開デプロイは未完了です。クラウドモードの実装はこのリポジトリにあります。既存のローカルSQLiteデータは自動移行されません。必要な場合は別途移行してください。
 
 ### カメラを使わずに試す
 
@@ -113,8 +137,8 @@ py -3.10 -m unittest discover -s backend -p "test_*.py"
 ## 技術と素材
 
 - ReactとCSSで写真レイヤー、体験進行、特典表示を管理
-- 既定ではOpenCV・MediaPipe Face Mesh・FastAPI・Socket.IOで顔位置を取得し、ブラウザー追跡モードではMediaPipe Face DetectorをWeb Worker内で動かす
-- ローカルの広告・特典データはSQLiteへ保存。Vercel・Supabaseを使った会社別のクラウド共有は未実装
+- ローカルモードはOpenCV・MediaPipe Face Mesh・FastAPI・Socket.IO・SQLiteを使い、ブラウザー追跡モードではMediaPipe Face DetectorをWeb Worker内で動かす
+- クラウドモードはSupabase Auth、会社別RLS、Postgres、Storageで広告とイベントを共有し、Vercelはフロントエンドを静的配信する。クラウドの初期設定と公開は未完了
 - SQLiteで見どころ発見・QRページ訪問・受取・利用確認を集計
 - 実際の広告へ進む場合は、広告主の許諾を得た商品写真・コピー・特典へ差し替える
 

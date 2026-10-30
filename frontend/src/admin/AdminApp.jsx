@@ -32,10 +32,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { createDefaultCampaign, createNewCampaign } from "./defaultCampaign.js";
 import { readOfflineCampaignSnapshot, registerOfflineSupport, savePublishedCampaignOffline } from "../offlineCampaign.js";
+import { requestCloudApi } from "../cloudApi.js";
+import { supabaseConfigured } from "../lib/supabase.js";
 import "../index.css";
 import "./admin.css";
 
 const api = async (path, options = {}) => {
+    if (supabaseConfigured) return requestCloudApi(path, options);
+
     const response = await fetch(path, {
         method: options.method || "GET",
         headers: options.body instanceof ArrayBuffer ? { "Content-Type": "application/octet-stream" } : options.body ? { "Content-Type": "application/json" } : undefined,
@@ -142,7 +146,7 @@ export default function AdminApp() {
         let cancelled = false;
         const target = campaign.reward.qrMode === "image" && campaign.reward.qrImage
             ? campaign.reward.qrImage
-            : campaign.reward.qrUrl || `${window.location.origin}/view/coupon.html?campaign=${encodeURIComponent(campaign.id)}&detail=grill`;
+            : campaign.reward.qrUrl || new URL(`./coupon.html?campaign=${encodeURIComponent(campaign.id)}&detail=grill`, window.location.href).toString();
         if (campaign.reward.qrMode === "image" && campaign.reward.qrImage) {
             setQrPreview(target);
             return undefined;
@@ -493,7 +497,7 @@ export default function AdminApp() {
                                 </div>
                             </div>
                             <div className="preview-caption"><span className="preview-caption-mark" />選択中の場面をプレビューしています</div>
-                            <Card className="publish-summary"><CardContent><div className="summary-top"><div className="summary-icon"><Megaphone size={16} /></div><div><span>公開先</span><strong>Perspective Ads / サイネージ</strong></div></div><Separator /><div className="summary-status"><span>最終保存</span><strong>{formatDate(campaign.updatedAt)}</strong></div><a href="./index.html" target="_blank" rel="noreferrer">広告画面を開く <ArrowUpRight size={14} /></a></CardContent></Card>
+                            <Card className="publish-summary"><CardContent><div className="summary-top"><div className="summary-icon"><Megaphone size={16} /></div><div><span>公開先</span><strong>Perspective Ads / サイネージ</strong></div></div><Separator /><div className="summary-status"><span>最終保存</span><strong>{formatDate(campaign.updatedAt)}</strong></div><a href={supabaseConfigured && isSavedCampaign ? `./index.html?campaign=${encodeURIComponent(campaign.id)}` : "./index.html"} target="_blank" rel="noreferrer">広告画面を開く <ArrowUpRight size={14} /></a></CardContent></Card>
                             <div className="help-footer"><CircleHelp size={15} /><span>登録した素材は広告ごとに保存されます。PNG・JPEG・WebPに対応。</span></div>
                         </aside>
                     </div>
