@@ -73,11 +73,11 @@ py -3.10 backend/main.py
 
 クラウドモードではSupabase Authで管理者を認証し、PostgresのRLSで会社ごとの広告データと素材の操作権限を分けます。公開広告の読み込み、特典抽選・発行、利用確認、イベント記録もSupabaseへ接続します。Vercelは静的画面を配信し、カメラは各サイネージ端末のブラウザーで処理します。カメラ映像はクラウドへ送信しません。
 
-Supabase側のテーブル・権限・Storage設定は`supabase/migrations/`にあります。専用のSupabaseプロジェクトを作成し、プロジェクト参照IDを使って次を実行します。
+Supabase側のテーブル・権限・Storage設定は`supabase/migrations/`にあります。専用プロジェクトを東京リージョンに作成済みです。プロジェクト参照IDは`lvlyeowtyrjqdicctrsu`です。初回のマイグレーション適用には、Supabase DashboardのDatabase Settingsで設定したDBパスワードが必要です。
 
 ```powershell
 npx supabase login
-npx supabase link --project-ref <SupabaseのProject ref>
+npx supabase link --project-ref lvlyeowtyrjqdicctrsu
 npx supabase db push
 ```
 
@@ -89,11 +89,11 @@ VITE_SUPABASE_PUBLISHABLE_KEY=<SupabaseのPublishable key>
 VITE_FACE_TRACKING_SOURCE=browser
 ```
 
-ブラウザーへ設定するのはPublishable keyだけです。`service_role`キーやSupabaseのSecret keyは設定しません。SupabaseのAuthentication URL Configurationには、公開後のVercelサイトURLと`/admin.html`をメール確認後の許可URLとして登録してください。
+ブラウザーへ設定するのはPublishable keyだけです。`service_role`キーやSupabaseのSecret keyは設定しません。Vercelの`perspective-ads`プロジェクトを作成し、ビルドルートを`frontend`に設定済みです。SupabaseのURL・Publishable key・ブラウザー顔追跡設定もProductionとPreviewへ登録済みです。SupabaseのAuthentication URL Configurationには、公開後の`https://perspective-ads.vercel.app`と`/admin.html`をメール確認後の許可URLとして登録してください。
 
 管理画面で会社アカウントを作成し、広告を保存・公開すると、広告ごとのURLからサイネージを開けます。同じURLを複数端末で使えます。各端末はオンライン時に広告と画像をブラウザーへ自動保存し、その後はネットワークが切れても保存済み広告を表示します。保存は端末・ブラウザーごとです。広告の編集と特典コードの利用確認には通信が必要です。
 
-現時点ではSupabase/Vercelのプロジェクト作成、マイグレーション適用、環境変数登録、公開デプロイは未完了です。クラウドモードの実装はこのリポジトリにあります。既存のローカルSQLiteデータは自動移行されません。必要な場合は別途移行してください。
+SupabaseとVercelのプロジェクト作成、Vercel環境変数の登録、ビルド設定は完了しています。DBマイグレーション、SupabaseのAuthentication許可URL設定、本番デプロイは未完了です。クラウドモードの実装はこのリポジトリにあります。既存のローカルSQLiteデータは自動移行されません。必要な場合は別途移行してください。
 
 ### カメラを使わずに試す
 
@@ -138,7 +138,7 @@ py -3.10 -m unittest discover -s backend -p "test_*.py"
 
 - ReactとCSSで写真レイヤー、体験進行、特典表示を管理
 - ローカルモードはOpenCV・MediaPipe Face Mesh・FastAPI・Socket.IO・SQLiteを使い、ブラウザー追跡モードではMediaPipe Face DetectorをWeb Worker内で動かす
-- クラウドモードはSupabase Auth、会社別RLS、Postgres、Storageで広告とイベントを共有し、Vercelはフロントエンドを静的配信する。クラウドの初期設定と公開は未完了
+- クラウドモードはSupabase Auth、会社別RLS、Postgres、Storageで広告とイベントを共有し、Vercelはフロントエンドを静的配信する。クラウドプロジェクトと環境変数は設定済みで、DBマイグレーションと公開は未完了
 - SQLiteで見どころ発見・QRページ訪問・受取・利用確認を集計
 - 実際の広告へ進む場合は、広告主の許諾を得た商品写真・コピー・特典へ差し替える
 
