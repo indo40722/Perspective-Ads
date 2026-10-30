@@ -149,7 +149,7 @@ export function createBrowserFaceTracker({ wasmRoot, modelUrl, onFace, onFaceLos
             video.autoplay = true;
             video.srcObject = stream;
 
-            worker = new Worker(new URL("./faceTrackingWorker.js", import.meta.url), { type: "module" });
+            worker = new Worker(new URL("./faceTrackingWorker.js", import.meta.url));
             worker.addEventListener("message", handleWorkerMessage);
             worker.addEventListener("error", (event) => {
                 const error = new Error(event.message || "顔検出ワーカーでエラーが発生しました");
