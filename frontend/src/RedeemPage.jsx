@@ -85,6 +85,8 @@ export default function RedeemPage() {
                     {stats ? (
                         <dl>
                             <div><dt>QRページ表示</dt><dd>{stats.visits}</dd></div>
+                            <div><dt>焼き目を発見</dt><dd>{stats.grillViews}</dd></div>
+                            <div><dt>断面を発見</dt><dd>{stats.cutViews}</dd></div>
                             <div><dt>特典の受取</dt><dd>{stats.issued}</dd></div>
                             <div><dt>利用確認</dt><dd>{stats.redeemed}</dd></div>
                         </dl>

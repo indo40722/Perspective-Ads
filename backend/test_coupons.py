@@ -1,7 +1,10 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
+from fastapi.testclient import TestClient
+import main
 from coupons import CouponStore
 
 
@@ -29,6 +32,13 @@ class CouponStoreTests(unittest.TestCase):
         self.assertNotEqual(first["code"], another["code"])
         self.assertEqual(first["status"], "issued")
 
+    def test_journey_discovery_events_are_idempotent(self):
+        first = self.store.record_event("event-grill-123456", "session-1234567890", "steak", "detail_found", "grill")
+        repeated = self.store.record_event("event-grill-123456", "session-1234567890", "steak", "detail_found", "grill")
+
+        self.assertEqual(first["grillViews"], 1)
+        self.assertEqual(repeated["grillViews"], 1)
+
     def test_coupon_can_be_redeemed_only_once(self):
         coupon = self.store.claim("claim-session-123456", "steak")
 
@@ -43,6 +53,67 @@ class CouponStoreTests(unittest.TestCase):
 
     def test_unknown_coupon_cannot_be_redeemed(self):
         self.assertIsNone(self.store.redeem("CHAR-UNKNOWN"))
+
+
+class CouponEventEndpointTests(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.store = CouponStore(Path(self.temp_dir.name) / "coupons.sqlite3")
+        self.client = TestClient(main.app)
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def test_event_endpoint_records_valid_discovery(self):
+        with patch.object(main, "get_coupon_store", return_value=self.store):
+            response = self.client.post(
+                "/api/coupons/events",
+                headers={"Origin": "http://testserver"},
+                json={
+                    "campaignId": "steak",
+                    "sessionId": "session-identifier-123456",
+                    "eventId": "event-identifier-123456",
+                    "eventType": "detail_found",
+                    "detailId": "grill",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["grillViews"], 1)
+
+    def test_event_endpoint_rejects_invalid_token(self):
+        with patch.object(main, "get_coupon_store", return_value=self.store):
+            response = self.client.post(
+                "/api/coupons/events",
+                headers={"Origin": "http://testserver"},
+                json={
+                    "campaignId": "steak",
+                    "sessionId": "short",
+                    "eventId": "event-identifier-123456",
+                    "eventType": "detail_found",
+                    "detailId": "grill",
+                },
+            )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(self.store.stats()["grillViews"], 0)
+
+    def test_event_endpoint_rejects_obsolete_choice_event(self):
+        with patch.object(main, "get_coupon_store", return_value=self.store):
+            response = self.client.post(
+                "/api/coupons/events",
+                headers={"Origin": "http://testserver"},
+                json={
+                    "campaignId": "steak",
+                    "sessionId": "session-identifier-123456",
+                    "eventId": "event-identifier-123456",
+                    "eventType": "choice_committed",
+                    "detailId": "grill",
+                },
+            )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(self.store.stats()["grillViews"], 0)
 
 
 if __name__ == "__main__":

@@ -53,6 +53,7 @@ class CameraRecordingTests(unittest.TestCase):
 
         started = asyncio.run(main.start_camera_recording(request))
         self.assertEqual(main.active_camera_recording["recording_id"], started["recording_id"])
+        self.assertEqual(self.writer_factory.call_args.args[2], main.CAMERA_RECORDING_FPS)
 
         stopped = asyncio.run(main.finish_camera_recording(started["recording_id"], request))
         self.assertEqual(stopped["filename"], started["filename"])

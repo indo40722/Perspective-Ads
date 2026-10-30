@@ -1,0 +1,85 @@
+{
+  "id": "leather-tote",
+  "name": "KASANE｜革の表情を見つける",
+  "advertiser": "KASANE LEATHER",
+  "itemName": "レザートート",
+  "itemNameImage": "",
+  "photos": [
+    {
+      "src": "./assets/bag-front.png",
+      "alt": "チェスナットブラウンのシボ革トートバッグを正面から見た写真"
+    },
+    {
+      "src": "./assets/bag-side.png",
+      "alt": "側面のマチと細かな革のシボ、縫い目が見えるトートバッグの写真"
+    },
+    {
+      "src": "./assets/bag-interior.png",
+      "alt": "トートバッグを開き、明るい裏地と内ポケットを見せた写真"
+    }
+  ],
+  "stages": [
+    {
+      "label": "全体",
+      "eyebrow": "KASANE LEATHER",
+      "title": "毎日の荷物を、\nすっとひとまとめに。",
+      "description": "やわらかな革と、使いやすい内ポケット。",
+      "instruction": "少し横へ動いて、革の表情を見る。",
+      "headlineImage": "",
+      "supportImage": "",
+      "photo": 0,
+      "focus": { "scale": 1, "originX": 50, "originY": 50, "panX": 0, "panY": 0 },
+      "headlineMode": "text",
+      "supportMode": "text"
+    },
+    {
+      "label": "革の表情",
+      "eyebrow": "KASANE LEATHER",
+      "title": "側面まで、すっきりした形。",
+      "description": "マチの厚みと、底から続く縫い目。",
+      "instruction": "少し横へ動いて、側面を見る。",
+      "headlineImage": "",
+      "supportImage": "",
+      "photo": 1,
+      "focus": { "scale": 1.05, "originX": 46, "originY": 52, "panX": 0, "panY": 0 },
+      "headlineMode": "text",
+      "supportMode": "text"
+    },
+    {
+      "label": "バッグの内側",
+      "eyebrow": "KASANE LEATHER",
+      "title": "小物が迷子にならない、内ポケット。",
+      "description": "バッグの内側にも、分けてしまえるポケット。",
+      "instruction": "前へ近づいて、内側を見る。",
+      "headlineImage": "",
+      "supportImage": "",
+      "photo": 2,
+      "focus": { "scale": 1.05, "originX": 50, "originY": 50, "panX": 0, "panY": 0 },
+      "headlineMode": "text",
+      "supportMode": "text"
+    }
+  ],
+  "reward": {
+    "title": "見つけてくれてありがとう",
+    "detailTexts": {
+      "grill": "革の表情まで見つけてくれてありがとう",
+      "cut": "バッグの内側まで見てくれてありがとう"
+    },
+    "detailImages": {},
+    "detailAlts": {},
+    "actionImage": "",
+    "instructionImage": "",
+    "actionAlt": "特典を受け取る",
+    "instructionAlt": "QRコードをスマートフォンで読み取る",
+    "value": "10% OFF",
+    "note": "QRを読み取ると、特典ページが開きます",
+    "qrMode": "url",
+    "qrUrl": "",
+    "chancePercent": 100
+  },
+  "theme": {
+    "background": "#261C15",
+    "accent": "#D5B387",
+    "text": "#F4EEE5"
+  }
+}

@@ -5,18 +5,28 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
-    "test": "node --test src/discovery.test.js src/projection.test.js src/photoInteraction.test.js src/couponUrl.test.js"
+    "build": "vite build && node scripts/copy-mediapipe-assets.mjs",
+    "test": "node --test src/discovery.test.js src/projection.test.js src/photoInteraction.test.js src/couponUrl.test.js src/adJourney.test.js"
   },
   "dependencies": {
+    "@fontsource-variable/geist": "^5.3.0",
+    "@mediapipe/tasks-vision": "^1.2.0",
+    "class-variance-authority": "^0.7.1",
+    "cn": "^0.4.0",
+    "lucide-react": "^1.63.0",
+    "qrcode": "^1.5.4",
+    "radix-ui": "^1.8.1",
     "react": "19.3.0",
     "react-dom": "19.3.0",
-    "qrcode": "^1.5.4",
+    "shadcn": "^4.23.0",
     "socket.io-client": "4.8.4",
-    "three": "0.128.0"
+    "three": "0.128.0",
+    "tw-animate-css": "^1.4.0"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
     "@vitejs/plugin-react": "6.1.2",
+    "tailwindcss": "^4.3.3",
     "vite": "8.3.4"
   }
 }

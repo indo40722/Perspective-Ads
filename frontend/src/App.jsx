@@ -1,23 +1,43 @@
 import { useEffect, useRef, useState } from "react";
 import { io } from "socket.io-client";
 import QRCode from "qrcode";
+import { requestCouponApi } from "./couponApi.js";
 import { createShowcase } from "./photoShowcase.js";
-import { resolvePhotoStage, getApproachProgress, getCouponRevealProgress, getCutProgress } from "./photoInteraction.js";
+import { createAdJourneyTracker, getDetailAtViewer } from "./adJourney.js";
+import { resolvePhotoStage, getApproachProgress, getCutProgress } from "./photoInteraction.js";
 import { createCouponUrl } from "./couponUrl.js";
+import { readOfflineCampaignSnapshot } from "./offlineCampaign.js";
 import { STEAK_AD } from "./steakAd.js";
 import { CONFIG } from "./config.js";
 import { normalizedFaceToViewerCm } from "./projection.js";
 import { createOneEuroFilter, median, removeDeadzone } from "./tracking.js";
+import { createBrowserFaceTracker } from "./browserFaceTracker.js";
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+const browserTrackingEnabled = import.meta.env.VITE_FACE_TRACKING_SOURCE === "browser";
+
+const createDemoToken = () => {
+    const bytes = new Uint8Array(24);
+    window.crypto.getRandomValues(bytes);
+    return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+};
 
 export default function App() {
     const containerRef = useRef(null);
     const showcaseRef = useRef(null);
+    const [campaign, setCampaign] = useState(STEAK_AD);
+    const campaignRef = useRef(STEAK_AD);
+    campaignRef.current = campaign;
+    const offlineCampaignRef = useRef(false);
+    const campaignSessionsRef = useRef(new Map());
+    const rewardDrawsRef = useRef(new Map());
+    const journeyTrackerRef = useRef(null);
+    if (!journeyTrackerRef.current) journeyTrackerRef.current = createAdJourneyTracker(CONFIG);
+    const [journeyState, setJourneyState] = useState(() => journeyTrackerRef.current.snapshot());
     const [cameraConnected, setCameraConnected] = useState(false);
-    const [cameraReady, setCameraReady] = useState(false);
+    const [, setCameraReady] = useState(false);
     const [activeStageIndex, setActiveStageIndex] = useState(0);
-    const [couponQr, setCouponQr] = useState({ url: "", dataUrl: "", failed: false });
+    const couponQrMapRef = useRef({});
     const [debugVisible, setDebugVisible] = useState(false);
     const [debugValues, setDebugValues] = useState({ x: "0.0", depth: "0%", status: "カメラ未接続" });
     const [verificationVisible, setVerificationVisible] = useState(false);
@@ -30,12 +50,17 @@ export default function App() {
         depth: 0,
         cut: 0,
         coupon: 0,
+        journey: "見どころ未発見",
         stage: "全体",
         status: "カメラ未接続",
     });
     const [recording, setRecording] = useState(false);
     const [recordingStopping, setRecordingStopping] = useState(false);
     const [recordingError, setRecordingError] = useState("");
+    const [browserCameraBusy, setBrowserCameraBusy] = useState(false);
+    const [browserCameraError, setBrowserCameraError] = useState("");
+    const [browserCameraDevices, setBrowserCameraDevices] = useState([]);
+    const [browserCameraDeviceId, setBrowserCameraDeviceId] = useState("");
     const [status, setStatus] = useState("カメラ未接続・ドラッグ操作ができます");
     const debugVisibleRef = useRef(false);
     const verificationVisibleRef = useRef(false);
@@ -43,6 +68,9 @@ export default function App() {
     const mediaRecorderRef = useRef(null);
     const screenStreamRef = useRef(null);
     const recordingChunksRef = useRef([]);
+    const browserCameraRecorderRef = useRef(null);
+    const browserCameraChunksRef = useRef([]);
+    const browserCameraControlsRef = useRef({ start: async () => {}, stop: () => {}, getStream: () => null });
     const socketRef = useRef(null);
     const cameraRecordingIdRef = useRef(null);
     const recordingFilenameBaseRef = useRef("");
@@ -50,6 +78,27 @@ export default function App() {
     const resetViewRef = useRef(() => {});
     debugVisibleRef.current = debugVisible;
     verificationVisibleRef.current = verificationVisible;
+    const sessionIdForCampaign = (campaignId) => {
+        if (!campaignSessionsRef.current.has(campaignId)) {
+            const storageKey = `perspective-ads-${campaignId}-session`;
+            let sessionId = null;
+            try {
+                sessionId = window.sessionStorage.getItem(storageKey);
+            } catch {
+                sessionId = null;
+            }
+            if (!sessionId) {
+                sessionId = createDemoToken();
+                try {
+                    window.sessionStorage.setItem(storageKey, sessionId);
+                } catch {
+                    sessionId = createDemoToken();
+                }
+            }
+            campaignSessionsRef.current.set(campaignId, sessionId);
+        }
+        return campaignSessionsRef.current.get(campaignId);
+    };
 
     const handleVerificationMode = (enabled) => {
         setVerificationMode(enabled);
@@ -97,7 +146,8 @@ export default function App() {
         if (recordingStoppingRef.current) return;
         const recorder = mediaRecorderRef.current;
         const recordingId = cameraRecordingIdRef.current;
-        if (!recorder && !recordingId) return;
+        const browserCameraRecorder = browserCameraRecorderRef.current;
+        if (!recorder && !recordingId && !browserCameraRecorder) return;
 
         recordingStoppingRef.current = true;
         setRecordingStopping(true);
@@ -105,6 +155,11 @@ export default function App() {
         if (recorder && recorder.state !== "inactive") {
             screenStopped = new Promise((resolve) => recorder.addEventListener("stop", resolve, { once: true }));
             recorder.stop();
+        }
+        let cameraStopped = Promise.resolve();
+        if (browserCameraRecorder && browserCameraRecorder.state !== "inactive") {
+            cameraStopped = new Promise((resolve) => browserCameraRecorder.addEventListener("stop", resolve, { once: true }));
+            browserCameraRecorder.stop();
         }
 
         try {
@@ -123,10 +178,11 @@ export default function App() {
             }
         } finally {
             cameraRecordingIdRef.current = null;
-            await screenStopped;
+            await Promise.all([screenStopped, cameraStopped]);
             screenStreamRef.current?.getTracks().forEach((track) => track.stop());
             screenStreamRef.current = null;
             mediaRecorderRef.current = null;
+            browserCameraRecorderRef.current = null;
             setRecording(false);
             setRecordingStopping(false);
             recordingStoppingRef.current = false;
@@ -142,19 +198,42 @@ export default function App() {
 
         let stream;
         let recorder;
+        let browserCameraRecorder;
         let recordingId;
         try {
+            if (browserTrackingEnabled && !browserCameraControlsRef.current.getStream()) {
+                throw new Error("画面とカメラを録画するには、先にカメラを起動してください");
+            }
             stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
             const socketId = socketRef.current?.id;
-            if (!socketId) throw new Error("カメラに接続してから録画を開始してください");
+            if (!browserTrackingEnabled && !socketId) throw new Error("カメラに接続してから録画を開始してください");
+            resetVerification();
+            verificationControlsRef.current.prepareForRecording?.();
+            await new Promise((resolve) => window.requestAnimationFrame(() => window.requestAnimationFrame(resolve)));
             const mimeType = typeof MediaRecorder.isTypeSupported === "function"
                 ? ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"].find((type) => MediaRecorder.isTypeSupported(type))
                 : undefined;
             recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
-            const started = await cameraRecordingRequest("/api/camera-recording/start", socketId);
-            recordingId = started.body.recording_id;
-            cameraRecordingIdRef.current = recordingId;
-            recordingFilenameBaseRef.current = started.body.filename_base;
+            if (browserTrackingEnabled) {
+                const cameraStream = browserCameraControlsRef.current.getStream();
+                browserCameraRecorder = new MediaRecorder(cameraStream, mimeType ? { mimeType } : undefined);
+                browserCameraRecorderRef.current = browserCameraRecorder;
+                browserCameraChunksRef.current = [];
+                recordingFilenameBaseRef.current = `perspective-${new Date().toISOString().replace(/[:.]/g, "-")}`;
+                browserCameraRecorder.addEventListener("dataavailable", (event) => {
+                    if (event.data.size > 0) browserCameraChunksRef.current.push(event.data);
+                });
+                browserCameraRecorder.addEventListener("stop", () => {
+                    const blob = new Blob(browserCameraChunksRef.current, { type: browserCameraRecorder.mimeType || "video/webm" });
+                    downloadRecording(blob, `${recordingFilenameBaseRef.current}-camera.webm`);
+                }, { once: true });
+                browserCameraRecorder.start(1000);
+            } else {
+                const started = await cameraRecordingRequest("/api/camera-recording/start", socketId);
+                recordingId = started.body.recording_id;
+                cameraRecordingIdRef.current = recordingId;
+                recordingFilenameBaseRef.current = started.body.filename_base;
+            }
             recordingChunksRef.current = [];
             screenStreamRef.current = stream;
             mediaRecorderRef.current = recorder;
@@ -180,9 +259,11 @@ export default function App() {
                 const socketId = socketRef.current?.id;
                 if (socketId) await cameraRecordingRequest(`/api/camera-recording/${recordingId}/cancel`, socketId).catch(() => {});
             }
+            if (browserCameraRecorder && browserCameraRecorder.state !== "inactive") browserCameraRecorder.stop();
             stream?.getTracks().forEach((track) => track.stop());
             screenStreamRef.current = null;
             mediaRecorderRef.current = null;
+            browserCameraRecorderRef.current = null;
             cameraRecordingIdRef.current = null;
             setRecording(false);
             setRecordingError(error?.name === "NotAllowedError" ? "画面共有がキャンセルされました" : error?.message || "画面とカメラの録画を開始できませんでした");
@@ -207,43 +288,85 @@ export default function App() {
 
     useEffect(() => {
         let cancelled = false;
-        let url;
-        try {
-            url = createCouponUrl(
-                import.meta.env.VITE_COUPON_URL,
-                window.location.href,
-                STEAK_AD.id
-            );
-        } catch {
-            setCouponQr({ url: "", dataUrl: "", failed: true });
-            return undefined;
-        }
-        setCouponQr({ url, dataUrl: "", failed: false });
-        QRCode.toDataURL(url, {
+        const applyCampaign = (nextCampaign, isOffline) => {
+            if (cancelled || !nextCampaign?.id) return;
+            const current = campaignRef.current;
+            if (
+                current.id === nextCampaign.id
+                && current.updatedAt === nextCampaign.updatedAt
+                && offlineCampaignRef.current === isOffline
+            ) return;
+            offlineCampaignRef.current = isOffline;
+            resetViewRef.current();
+            setActiveStageIndex(0);
+            setCampaign(nextCampaign);
+        };
+        const refreshActiveCampaign = async () => {
+            try {
+                const activeCampaign = await requestCouponApi("/api/campaigns/active");
+                if (activeCampaign?.id) {
+                    applyCampaign(activeCampaign, false);
+                    return;
+                }
+            } catch {
+                // 通信できない場合は、端末へ保存した公開広告を確認する。
+            }
+
+            try {
+                const snapshot = await readOfflineCampaignSnapshot();
+                applyCampaign(snapshot?.campaign, true);
+            } catch {
+                // 保存済み広告がない場合は、初期表示の広告を保つ。
+            }
+        };
+        refreshActiveCampaign();
+        const intervalId = window.setInterval(refreshActiveCampaign, 5000);
+        return () => {
+            cancelled = true;
+            window.clearInterval(intervalId);
+        };
+    }, []);
+
+    useEffect(() => {
+        showcaseRef.current?.setProduct(campaign);
+    }, [campaign]);
+
+    useEffect(() => {
+        let cancelled = false;
+        const qrOptions = {
             errorCorrectionLevel: "Q",
             margin: 2,
             width: 420,
             color: { dark: "#142019", light: "#fffdf7" },
-        }).then((dataUrl) => {
-            if (!cancelled) setCouponQr({ url, dataUrl, failed: false });
+        };
+        const customUrl = campaign.reward?.qrUrl?.trim();
+        const detailImage = campaign.reward?.qrMode === "image" ? campaign.reward?.qrImage : "";
+        showcaseRef.current?.setProduct(campaign);
+        Promise.all(["grill", "cut"].map(async (detailId) => {
+            const url = customUrl || createCouponUrl(
+                import.meta.env.VITE_COUPON_URL,
+                window.location.href,
+                campaign.id,
+                detailId
+            );
+            const dataUrl = detailImage || await QRCode.toDataURL(url, qrOptions);
+            return [detailId, { url, dataUrl }];
+        })).then((entries) => {
+            if (!cancelled) couponQrMapRef.current = Object.fromEntries(entries);
         }).catch(() => {
-            if (!cancelled) setCouponQr({ url, dataUrl: "", failed: true });
+            if (!cancelled) couponQrMapRef.current = { failed: true };
         });
 
         return () => {
             cancelled = true;
         };
-    }, []);
-
-    useEffect(() => {
-        showcaseRef.current?.setCouponQr(couponQr);
-    }, [couponQr]);
+    }, [campaign]);
 
     useEffect(() => {
         const container = containerRef.current;
         if (!container) return undefined;
 
-        const showcase = createShowcase(container, STEAK_AD);
+        const showcase = createShowcase(container, campaignRef.current);
         showcaseRef.current = showcase;
         const stageHost = container.querySelector(".photo-stage");
         let animationFrameId = 0;
@@ -254,6 +377,44 @@ export default function App() {
         let latestFrameId = -1;
         let statusMessage = "カメラ未接続・ドラッグ操作ができます";
         let currentStageIndex = 0;
+        let lastJourneyUiKey = "";
+        const drawReward = () => {
+            const campaignId = campaignRef.current.id;
+            const sessionId = sessionIdForCampaign(campaignId);
+            const drawState = rewardDrawsRef.current.get(campaignId) || { pending: false, result: null };
+            rewardDrawsRef.current.set(campaignId, drawState);
+            if (drawState.pending || drawState.result !== null) return;
+            drawState.pending = true;
+            requestCouponApi("/api/campaigns/reward-draw", {
+                method: "POST",
+                body: { campaignId, sessionId },
+            }).then((result) => {
+                drawState.result = Boolean(result.won);
+            }).catch(() => {
+                const chancePercent = Number(campaignRef.current.reward?.chancePercent ?? 100);
+                drawState.result = Math.random() * 100 < chancePercent;
+            }).finally(() => {
+                drawState.pending = false;
+            });
+        };
+        const createJourneyEventIds = () => ({
+            grill: createDemoToken(),
+            cut: createDemoToken(),
+        });
+        let journeyEventIds = createJourneyEventIds();
+
+        const recordJourneyEvent = (eventId, eventType, detailId) => {
+            requestCouponApi("/api/coupons/events", {
+                method: "POST",
+                body: {
+                    campaignId: campaignRef.current.id,
+                    sessionId: sessionIdForCampaign(campaignRef.current.id),
+                    eventId,
+                    eventType,
+                    detailId,
+                },
+            }).catch(() => {});
+        };
 
         const targetViewerXRef = { current: 0 };
         const currentViewerXRef = { current: 0 };
@@ -261,6 +422,8 @@ export default function App() {
         const currentViewerDepthRef = { current: 0 };
         const neutralFaceXRef = { current: null };
         const neutralFaceScaleRef = { current: null };
+        const recentFaceXSamples = [];
+        const recentFaceScaleSamples = [];
         const calibrationSamples = [];
         const calibrationScaleSamples = [];
         const manualInputUntilRef = { current: 0 };
@@ -289,6 +452,12 @@ export default function App() {
             const rawX = Number(data.x);
             if (!Number.isFinite(rawX)) return;
             const faceScale = Number(data.face_scale);
+            recentFaceXSamples.push(rawX);
+            if (recentFaceXSamples.length > CONFIG.CALIBRATION_SAMPLE_COUNT) recentFaceXSamples.shift();
+            if (Number.isFinite(faceScale) && faceScale > 0) {
+                recentFaceScaleSamples.push(faceScale);
+                if (recentFaceScaleSamples.length > 5) recentFaceScaleSamples.shift();
+            }
             faceDetectedRef.current = true;
             setCameraReady(true);
 
@@ -333,7 +502,12 @@ export default function App() {
             const offset = removeDeadzone(rawX - neutralFaceXRef.current, CONFIG.INPUT_DEADZONE);
             const filteredX = filter.filter(offset, performance.now());
             targetViewerXRef.current = normalizedFaceToViewerCm({ x: filteredX }, CONFIG).x;
-            targetViewerDepthRef.current = getApproachProgress(faceScale, neutralFaceScaleRef.current);
+            targetViewerDepthRef.current = getApproachProgress(
+                median(recentFaceScaleSamples),
+                neutralFaceScaleRef.current,
+                CONFIG.APPROACH_FACE_SIZE_START_RATIO,
+                CONFIG.APPROACH_FACE_SIZE_FULL_RATIO,
+            );
             faceDetectedRef.current = true;
             setCameraReady(true);
             statusMessage = "顔位置を追跡中";
@@ -343,6 +517,8 @@ export default function App() {
         const handleFaceLost = () => {
             if (verificationModeRef.current) return;
             faceDetectedRef.current = false;
+            recentFaceXSamples.length = 0;
+            recentFaceScaleSamples.length = 0;
             if (neutralFaceXRef.current === null) {
                 calibrationSamples.length = 0;
                 calibrationScaleSamples.length = 0;
@@ -362,9 +538,9 @@ export default function App() {
             }, 900);
         };
 
-        const socket = io();
+        const socket = browserTrackingEnabled ? null : io();
         socketRef.current = socket;
-        socket.on("connect", () => {
+        socket?.on("connect", () => {
             cameraConnectedRef.current = true;
             latestFrameId = -1;
             if (verificationModeRef.current) {
@@ -384,7 +560,7 @@ export default function App() {
             statusMessage = "顔を探しています";
             setStatus(statusMessage);
         });
-        socket.on("disconnect", () => {
+        socket?.on("disconnect", () => {
             if (cameraRecordingIdRef.current) {
                 cameraRecordingIdRef.current = null;
                 recordingStoppingRef.current = false;
@@ -398,8 +574,14 @@ export default function App() {
             }
             cameraConnectedRef.current = false;
             cameraDisabledRef.current = false;
+            recentFaceXSamples.length = 0;
+            recentFaceScaleSamples.length = 0;
+            calibrationSamples.length = 0;
+            calibrationScaleSamples.length = 0;
             if (!verificationModeRef.current) {
                 faceDetectedRef.current = false;
+                neutralFaceXRef.current = null;
+                neutralFaceScaleRef.current = null;
                 targetViewerXRef.current = 0;
                 targetViewerDepthRef.current = 0;
             }
@@ -410,9 +592,9 @@ export default function App() {
                 : "カメラ未接続・ドラッグ操作ができます";
             setStatus(statusMessage);
         });
-        socket.on("face_data", handleFaceData);
-        socket.on("face_lost", handleFaceLost);
-        socket.on("camera_status", ({ status: cameraStatus } = {}) => {
+        socket?.on("face_data", handleFaceData);
+        socket?.on("face_lost", handleFaceLost);
+        socket?.on("camera_status", ({ status: cameraStatus } = {}) => {
             if (cameraStatus === "starting") statusMessage = "カメラを起動しています";
             else if (cameraStatus === "unavailable") statusMessage = "カメラを利用できません";
             else if (cameraStatus === "disabled") {
@@ -431,6 +613,65 @@ export default function App() {
             if (verificationModeRef.current) statusMessage = "手動検証中・カメラ入力を一時停止";
             setStatus(statusMessage);
         });
+
+        let browserTracker = null;
+        if (browserTrackingEnabled) {
+            const wasmRoot = new URL("./assets/mediapipe/wasm/", document.baseURI).href;
+            const modelUrl = new URL("./assets/mediapipe/blaze_face_full_range.tflite", document.baseURI).href;
+            browserTracker = createBrowserFaceTracker({
+                wasmRoot,
+                modelUrl,
+                onFace: handleFaceData,
+                onFaceLost: handleFaceLost,
+                onStatus: (cameraStatus, message) => {
+                    if (cameraStatus === "ready") {
+                        cameraConnectedRef.current = true;
+                        cameraDisabledRef.current = false;
+                        setCameraConnected(true);
+                        if (!faceDetectedRef.current) setStatus("顔を探しています");
+                    } else if (cameraStatus === "starting") {
+                        setStatus("カメラを起動しています");
+                    } else if (cameraStatus === "stopped") {
+                        cameraConnectedRef.current = false;
+                        faceDetectedRef.current = false;
+                        setCameraConnected(false);
+                        setCameraReady(false);
+                        setStatus("カメラ停止中・ドラッグで操作できます");
+                    } else if (cameraStatus === "error") {
+                        setBrowserCameraError(message || "顔検出を開始できませんでした");
+                    }
+                },
+            });
+            browserCameraControlsRef.current = {
+                start: async (deviceId) => {
+                    setBrowserCameraBusy(true);
+                    setBrowserCameraError("");
+                    try {
+                        const stream = await browserTracker.start({ deviceId });
+                        const devices = (await navigator.mediaDevices.enumerateDevices())
+                            .filter((device) => device.kind === "videoinput");
+                        setBrowserCameraDevices(devices);
+                        setBrowserCameraDeviceId(stream.getVideoTracks()[0]?.getSettings().deviceId || deviceId || "");
+                    } catch (error) {
+                        const message = error?.name === "NotAllowedError"
+                            ? "カメラの使用を許可してください"
+                            : error?.name === "NotFoundError"
+                                ? "利用できるカメラが見つかりません"
+                                : error?.name === "NotReadableError"
+                                    ? "他のアプリがカメラを使用中です"
+                                    : error?.message || "カメラを起動できませんでした";
+                        setBrowserCameraError(message);
+                        cameraConnectedRef.current = false;
+                        setCameraConnected(false);
+                        setStatus(message);
+                    } finally {
+                        setBrowserCameraBusy(false);
+                    }
+                },
+                stop: () => browserTracker.stop(),
+                getStream: () => browserTracker.getStream(),
+            };
+        }
 
         const handlePointerDown = (event) => {
             if (verificationModeRef.current) return;
@@ -478,6 +719,9 @@ export default function App() {
             currentViewerDepthRef.current = 0;
             manualInputUntilRef.current = 0;
             currentStageIndex = 0;
+            journeyEventIds = createJourneyEventIds();
+            const resetJourney = journeyTrackerRef.current.reset();
+            setJourneyState(resetJourney);
             showcase.reset();
             setActiveStageIndex(0);
             statusMessage = verificationModeRef.current
@@ -493,6 +737,8 @@ export default function App() {
                 verificationModeRef.current = enabled;
                 neutralFaceXRef.current = null;
                 neutralFaceScaleRef.current = null;
+                recentFaceXSamples.length = 0;
+                recentFaceScaleSamples.length = 0;
                 calibrationSamples.length = 0;
                 calibrationScaleSamples.length = 0;
                 faceDetectedRef.current = false;
@@ -522,12 +768,32 @@ export default function App() {
                 targetViewerDepthRef.current = 0;
                 currentViewerDepthRef.current = 0;
             },
+            prepareForRecording() {
+                if (verificationModeRef.current) return;
+                const canRecenterOnCurrentFace = faceDetectedRef.current
+                    && recentFaceXSamples.length > 0
+                    && recentFaceScaleSamples.length > 0;
+                neutralFaceXRef.current = canRecenterOnCurrentFace ? median(recentFaceXSamples) : null;
+                neutralFaceScaleRef.current = canRecenterOnCurrentFace ? median(recentFaceScaleSamples) : null;
+                calibrationSamples.length = 0;
+                calibrationScaleSamples.length = 0;
+                filter.reset();
+                targetViewerXRef.current = 0;
+                currentViewerXRef.current = 0;
+                targetViewerDepthRef.current = 0;
+                currentViewerDepthRef.current = 0;
+                setCameraReady(canRecenterOnCurrentFace);
+                statusMessage = canRecenterOnCurrentFace ? "顔位置を追跡中" : "録画開始位置を調整しています";
+                setStatus(statusMessage);
+            },
         };
 
         const handleKeyDown = (event) => {
             const key = event.key.toLowerCase();
             if (key === "d") {
                 setDebugVisible((value) => !value);
+            } else if (key === "v") {
+                setVerificationVisible((value) => !value);
             } else if (key === "r") {
                 resetView();
             } else if (key === "f") {
@@ -558,12 +824,67 @@ export default function App() {
             const followAmount = 1 - Math.exp(-elapsedSeconds / CONFIG.VIEW_FOLLOW_SECONDS);
             currentViewerXRef.current += (targetViewerXRef.current - currentViewerXRef.current) * followAmount;
             currentViewerDepthRef.current += (targetViewerDepthRef.current - currentViewerDepthRef.current) * followAmount;
-            const cutProgress = getCutProgress(currentViewerDepthRef.current);
-            const couponProgress = getCouponRevealProgress(currentViewerXRef.current, currentViewerDepthRef.current);
-            showcase.setCutProgress(cutProgress);
-            showcase.setViewer(couponProgress);
+            const journey = journeyTrackerRef.current.update(
+                currentViewerXRef.current,
+                currentViewerDepthRef.current,
+                faceDetectedRef.current || verificationModeRef.current || Boolean(pointerDragRef.current) || timeMs < manualInputUntilRef.current,
+                timeMs
+            );
+            const journeyUiKey = `${journey.phase}:${journey.foundDetail ?? ""}`;
+            if (journeyUiKey !== lastJourneyUiKey) {
+                lastJourneyUiKey = journeyUiKey;
+                setJourneyState(journey);
+            }
+            if (journey.event === "detail-found-grill") {
+                recordJourneyEvent(journeyEventIds.grill, "detail_found", "grill");
+                drawReward();
+            } else if (journey.event === "detail-found-cut") {
+                recordJourneyEvent(journeyEventIds.cut, "detail_found", "cut");
+                drawReward();
+            }
 
-            const nextStageIndex = resolvePhotoStage(currentViewerXRef.current, currentStageIndex, currentViewerDepthRef.current);
+            const rewardRevealed = journey.phase === "revealed" && rewardDrawsRef.current.get(campaignRef.current.id)?.result === true;
+
+            let nextStageIndex = resolvePhotoStage(
+                currentViewerXRef.current,
+                currentStageIndex,
+                currentViewerDepthRef.current,
+                7,
+                4.5,
+                CONFIG.DETAIL_APPROACH_THRESHOLD,
+                CONFIG.DETAIL_APPROACH_EXIT_THRESHOLD,
+            );
+            if (journey.phase === "revealed") {
+                nextStageIndex = journey.foundDetail === "grill" ? 1 : 2;
+            }
+
+            const cutProgress = journey.phase === "revealed"
+                ? journey.foundDetail === "cut" ? 1 : 0
+                : getCutProgress(
+                    currentViewerDepthRef.current,
+                    CONFIG.CUT_REVEAL_START_PROGRESS,
+                    CONFIG.CUT_REVEAL_COMPLETE_PROGRESS,
+                );
+            const couponProgress = rewardRevealed ? 1 : 0;
+            const rewardDetail = journey.foundDetail ?? getDetailAtViewer(
+                currentViewerXRef.current,
+                currentViewerDepthRef.current,
+                CONFIG
+            );
+            const rewardQr = rewardDetail ? couponQrMapRef.current[rewardDetail] : null;
+            showcase.setCutProgress(cutProgress);
+            showcase.setRewardReveal({
+                progress: journey.phase === "revealed" ? 1 : journey.progress,
+                viewerX: currentViewerXRef.current,
+                forwardProgress: currentViewerDepthRef.current,
+                url: rewardQr?.url ?? "",
+                dataUrl: rewardQr?.dataUrl ?? "",
+                detail: rewardDetail ?? "",
+                interactive: rewardRevealed,
+                failed: Boolean(couponQrMapRef.current.failed),
+            });
+            showcase.setGazeProgress(journey.progress);
+
             if (nextStageIndex !== currentStageIndex) {
                 currentStageIndex = nextStageIndex;
                 showcase.setStage(nextStageIndex);
@@ -587,7 +908,8 @@ export default function App() {
                     depth: currentViewerDepthRef.current,
                     cut: cutProgress,
                     coupon: couponProgress,
-                    stage: STEAK_AD.stages[currentStageIndex].label,
+                    journey: journey.foundDetail ? `${journey.foundDetail === "grill" ? "焼き目" : "断面"}を発見` : "見どころ未発見",
+                    stage: campaignRef.current.stages[currentStageIndex].label,
                     status: statusMessage,
                 });
             }
@@ -603,7 +925,9 @@ export default function App() {
             stageHost.removeEventListener("pointermove", handlePointerMove);
             stageHost.removeEventListener("pointerup", handlePointerUp);
             stageHost.removeEventListener("pointercancel", handlePointerUp);
-            socket.disconnect();
+            browserTracker?.stop({ notify: false });
+            browserCameraControlsRef.current = { start: async () => {}, stop: () => {}, getStream: () => null };
+            socket?.disconnect();
             if (socketRef.current === socket) socketRef.current = null;
             showcase.dispose();
             if (showcaseRef.current === showcase) showcaseRef.current = null;
@@ -612,64 +936,72 @@ export default function App() {
         };
     }, []);
 
-    const activeStage = STEAK_AD.stages[activeStageIndex];
-
+    const activeStage = campaign.stages[activeStageIndex];
+    const titleForDisplay = campaign.id === "leather-tote"
+        ? activeStage.title.replace("、", "、\n")
+        : activeStage.title;
     return (
-        <main className="ad-shell">
-            <div id="container" ref={containerRef} role="region" aria-label="視点に合わせてステーキの見どころが変わる写真広告" />
+        <main className="ad-shell" data-campaign-id={campaign.id} style={{ "--ad-background": campaign.theme?.background || "#24160f", "--campaign-accent": campaign.theme?.accent || "#d8ae73", "--campaign-text": campaign.theme?.text || "#f6eee3" }}>
+            <div id="container" ref={containerRef} role="region" aria-label={`視点に合わせて${campaign.itemName}の見どころが変わる写真広告`} />
             <div className="campaign-overlay">
-                <header className="campaign-header">
-                    <div className="brand-lockup">
-                        <span className="brand-mark">CH</span>
-                        <span className="brand-name">CHAR</span>
-                        <span className="brand-divider" />
-                        <span className="brand-edition">STEAKHOUSE</span>
-                    </div>
-                    <div className={cameraReady ? "camera-status is-ready" : "camera-status"} aria-live="polite">
-                        <span className="status-light" />
-                        <span>{status}</span>
-                    </div>
-                </header>
-
                 <section className="campaign-copy" aria-live="polite">
                     <div className="stage-copy" key={activeStageIndex}>
-                        <p className="campaign-kicker">{activeStage.eyebrow}</p>
-                        <h1>
-                            {activeStage.title.split("\n").map((line, index) => <span key={index}>{line}</span>)}
+                        <div className="campaign-copy-part campaign-copy-brand">
+                            {campaign.itemNameImage
+                                ? <img src={campaign.itemNameImage} alt={campaign.itemName} />
+                                : <span className="campaign-text-brand">{campaign.itemName}</span>}
+                        </div>
+                        <h1 className="campaign-copy-part campaign-copy-headline">
+                            {activeStage.headlineMode === "image" && activeStage.headlineImage
+                                ? <><span className="screen-reader-copy">{activeStage.title.replace("\n", "")}</span><img src={activeStage.headlineImage} alt="" /></>
+                                : <span className="campaign-text-headline">{titleForDisplay}</span>}
                         </h1>
-                        <p className="campaign-description">{activeStage.description}</p>
-                        <p className="campaign-product">{STEAK_AD.itemName}<span> / {activeStage.label}</span></p>
+                        <div className="campaign-copy-part campaign-copy-support">
+                            {activeStage.supportMode === "image" && activeStage.supportImage
+                                ? <img src={activeStage.supportImage} alt={`${activeStage.description} ${activeStage.instruction}`} />
+                                : <span className="campaign-text-support"><span>{activeStage.description}</span><span>{activeStage.instruction}</span></span>}
+                        </div>
                     </div>
                 </section>
 
-                <footer className="campaign-footer">
-                    <div className="stage-track" aria-label={"広告の見どころ: " + activeStage.label}>
-                        {STEAK_AD.stages.map((stage, index) => (
-                            <div className={index === activeStageIndex ? "stage-marker is-active" : "stage-marker"} key={stage.label}>
-                                <span className="stage-rule" />
-                                <span>{stage.label}</span>
-                            </div>
-                        ))}
-                    </div>
-                    <button
-                        className={verificationVisible ? "verification-toggle is-active" : "verification-toggle"}
-                        type="button"
-                        aria-expanded={verificationVisible}
-                        onPointerDown={(event) => event.stopPropagation()}
-                        onClick={() => setVerificationVisible((value) => !value)}
-                    >
-                        {verificationVisible ? "検証を閉じる" : "検証"}
-                    </button>
-                    <span className="photo-credit">コンセプト用写真</span>
-                    <button
-                        className="reset-view"
-                        type="button"
-                        onPointerDown={(event) => event.stopPropagation()}
-                        onClick={resetVerification}
-                    >
-                        最初に戻す
-                    </button>
-                </footer>
+                {browserTrackingEnabled && (
+                    <aside className="browser-camera-control" aria-label="ブラウザーのカメラ設定">
+                        <button
+                            type="button"
+                            aria-pressed={cameraConnected}
+                            disabled={browserCameraBusy || (cameraConnected && recording)}
+                            onClick={() => cameraConnected
+                                ? browserCameraControlsRef.current.stop()
+                                : browserCameraControlsRef.current.start(browserCameraDeviceId)}
+                        >
+                            {browserCameraBusy ? "カメラ準備中…" : cameraConnected ? "カメラを停止" : "カメラを起動"}
+                        </button>
+                        {browserCameraDevices.length > 1 && (
+                            <select
+                                aria-label="追跡に使うカメラ"
+                                value={browserCameraDeviceId}
+                                disabled={browserCameraBusy || recording}
+                                onChange={async (event) => {
+                                    const deviceId = event.target.value;
+                                    setBrowserCameraDeviceId(deviceId);
+                                    if (cameraConnected) {
+                                        browserCameraControlsRef.current.stop();
+                                        await browserCameraControlsRef.current.start(deviceId);
+                                    }
+                                }}
+                            >
+                                {browserCameraDevices.map((device, index) => (
+                                    <option key={device.deviceId} value={device.deviceId}>
+                                        {device.label || `カメラ ${index + 1}`}
+                                    </option>
+                                ))}
+                            </select>
+                        )}
+                        <p aria-live="polite">
+                            {browserCameraError || "顔の位置だけを端末内で処理します。映像は送信しません。"}
+                        </p>
+                    </aside>
+                )}
 
                 {debugVisible && (
                     <aside className="debug-panel" aria-live="polite">
@@ -702,6 +1034,10 @@ export default function App() {
                                 <dt>表示</dt>
                                 <dd>{verificationSnapshot.stage}</dd>
                             </div>
+                            <div>
+                                <dt>体験</dt>
+                                <dd>{verificationSnapshot.journey}</dd>
+                            </div>
                         </dl>
                         <div className="verification-meters">
                             <div>
@@ -715,10 +1051,15 @@ export default function App() {
                             </div>
                             <progress value={verificationSnapshot.cut} max="1" aria-label="断面の表示進捗" />
                             <div>
-                                <span>QR（前進60%から表示）</span>
+                                <span>見どころ発見</span>
+                                <strong>{journeyState.foundDetail ? "完了" : "未発見"}</strong>
+                            </div>
+                            <progress value={journeyState.foundDetail ? 1 : 0} max="1" aria-label="見どころ発見" />
+                            <div>
+                                <span>QR（見どころ発見後）</span>
                                 <strong>{Math.round(verificationSnapshot.coupon * 100)}%</strong>
                             </div>
-                            <progress value={verificationSnapshot.coupon} max="1" aria-label="QRコードの表示進捗" />
+                            <progress value={verificationSnapshot.coupon} max="1" aria-label="見どころ発見後のQR表示" />
                         </div>
                         <label className="verification-mode">
                             <input
@@ -763,7 +1104,9 @@ export default function App() {
                             {recordingStopping ? "録画を保存中…" : recording ? "画面・カメラ録画を停止して保存" : "画面とカメラの録画を開始"}
                         </button>
                         <p className="recording-note" aria-live="polite">
-                            {recordingError || (recording ? "画面はWebM、カメラ映像はAVIで別々に保存します" : "画面共有でこのタブを選ぶと、カメラ映像も同時に記録します")}
+                            {recordingError || (recording
+                                ? browserTrackingEnabled ? "画面とカメラをWebMで別々に保存しています" : "画面はWebM、カメラ映像はAVIで別々に保存します"
+                                : "録画開始時に広告体験を初期化してから記録します")}
                         </p>
                         <p className="verification-current" aria-live="polite">{verificationSnapshot.status}</p>
                     </aside>

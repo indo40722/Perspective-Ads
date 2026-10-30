@@ -61,50 +61,68 @@ button {
 
 .coupon-plane {
     position: absolute;
-    z-index: 1;
-    top: 12%;
-    left: 1%;
-    display: grid;
-    width: min(104px, 30vw);
-    grid-template-columns: minmax(0, 1fr);
-    align-items: center;
-    gap: 6px;
+    z-index: 3;
+    --coupon-reveal-shift: 16%;
+    top: 25%;
+    left: 18%;
+    display: block;
+    width: min(312px, 30vw);
     padding: 0;
-    color: #fff9ef;
+    color: #19201d;
     text-decoration: none;
-    opacity: 0;
     pointer-events: none;
-    text-shadow: 0 1px 9px rgba(0, 0, 0, 0.78);
-    transform: translate3d(0, -50%, 0);
-    transition: opacity 100ms linear;
-    will-change: opacity, transform;
+    clip-path: inset(0 100% 0 0);
+    transform: rotate(-0.7deg);
+    transition: clip-path 45ms linear, transform 45ms linear;
+    will-change: clip-path, transform;
 }
 
-.coupon-plane-copy {
-    position: absolute;
-    top: auto;
-    bottom: calc(100% + 6px);
-    left: 0;
-    display: flex;
-    min-width: 0;
-    flex-direction: column;
+.coupon-ticket {
+    position: relative;
+    display: grid;
+    grid-template-columns: 104px minmax(0, 1fr);
     align-items: center;
-    gap: 2px;
-    width: 100%;
-    text-align: center;
-    text-shadow: 0 1px 8px rgba(0, 0, 0, 0.92);
+    gap: 13px;
+    min-height: 126px;
+    padding: 12px 14px;
+    overflow: hidden;
+    border: 1px solid rgba(202, 157, 94, 0.76);
+    background:
+        linear-gradient(90deg, #b84632 0 3px, transparent 3px),
+        linear-gradient(135deg, #292720, #171b18 78%);
+    color: #f8f3e9;
+    box-shadow: 0 18px 42px rgba(0, 0, 0, 0.5), 0 3px 8px rgba(0, 0, 0, 0.32);
 }
 
-.coupon-plane-brand {
-    display: none;
-    color: #e7b675;
-    font: 700 10px Arial, sans-serif;
+.coupon-ticket::before {
+    position: absolute;
+    inset: 5px;
+    border: 1px solid rgba(232, 195, 139, 0.13);
+    content: "";
+    pointer-events: none;
 }
 
-.coupon-plane-title {
-    color: rgba(248, 243, 233, 0.8);
-    font-size: 10px;
-    line-height: 1.4;
+.coupon-ticket-qr-frame {
+    position: relative;
+    display: grid;
+    width: 104px;
+    aspect-ratio: 1;
+    justify-self: start;
+    place-items: center;
+    padding: 4px;
+    border: 1px solid rgba(219, 184, 130, 0.75);
+    background: #fffdf7;
+}
+
+.coupon-ticket-copy {
+    position: relative;
+    display: grid;
+    min-width: 0;
+    align-content: center;
+    justify-items: start;
+    gap: 7px;
+    padding: 3px 0;
+    text-align: left;
 }
 
 .coupon-plane-qr,
@@ -115,9 +133,6 @@ button {
 }
 
 .coupon-plane-qr {
-    padding: 4px;
-    background: #fffdf7;
-    box-shadow: 0 2px 14px rgba(0, 0, 0, 0.36);
     image-rendering: pixelated;
 }
 
@@ -129,10 +144,9 @@ button {
 .coupon-plane-qr-status {
     display: grid;
     place-items: center;
-    padding: 8px;
-    background: rgba(20, 24, 22, 0.86);
-    color: #e7b675;
-    font-size: 10px;
+    padding: 6px;
+    color: #665e51;
+    font-size: 8px;
     text-align: center;
 }
 
@@ -162,16 +176,6 @@ button {
     opacity: 1;
 }
 
-.photo-stage[data-product="steak"][data-stage="断面"] .product-photo[data-photo-index="0"] {
-    opacity: 1;
-    transition-duration: 80ms;
-}
-
-.photo-stage[data-product="steak"][data-stage="断面"] .product-photo[data-photo-index="1"] {
-    opacity: var(--cut-progress);
-    transition-duration: 80ms;
-}
-
 .photo-shade {
     position: absolute;
     z-index: 0;
@@ -191,6 +195,59 @@ button {
     pointer-events: none;
 }
 
+.browser-camera-control {
+    position: absolute;
+    z-index: 5;
+    top: 18px;
+    right: 18px;
+    width: min(270px, calc(100vw - 36px));
+    padding: 9px 11px;
+    border: 1px solid rgba(248, 243, 233, 0.26);
+    background: rgba(12, 16, 14, 0.78);
+    color: rgba(248, 243, 233, 0.86);
+    pointer-events: auto;
+    backdrop-filter: blur(8px);
+}
+
+.browser-camera-control button {
+    min-height: 34px;
+    padding: 0 13px;
+    border: 1px solid rgba(231, 182, 117, 0.8);
+    background: transparent;
+    color: #fff9ef;
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.browser-camera-control button:hover:not(:disabled) {
+    background: rgba(231, 182, 117, 0.16);
+}
+
+.browser-camera-control button:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+.browser-camera-control select {
+    display: block;
+    max-width: 100%;
+    min-height: 32px;
+    margin-top: 6px;
+    padding: 0 8px;
+    border: 1px solid rgba(248, 243, 233, 0.3);
+    background: #171c19;
+    color: #fff9ef;
+    font: inherit;
+    font-size: 11px;
+}
+
+.browser-camera-control p {
+    margin: 6px 0 0;
+    font-size: 10px;
+    line-height: 1.45;
+}
+
 .campaign-header {
     position: absolute;
     top: 28px;
@@ -207,11 +264,6 @@ button {
     align-items: center;
     gap: 12px;
     min-width: 0;
-    transition: opacity 180ms ease;
-}
-
-.ad-shell.has-coupon-reveal .brand-lockup {
-    opacity: 0;
 }
 
 .brand-mark {
@@ -277,46 +329,6 @@ button {
 
 .stage-copy {
     animation: stage-copy-enter 460ms ease both;
-}
-
-.campaign-kicker {
-    margin: 0 0 18px;
-    color: #e7b675;
-    font-family: Arial, sans-serif;
-    font-size: 11px;
-    font-weight: 700;
-}
-
-.campaign-copy h1 {
-    margin: 0;
-    color: #fff9ef;
-    font-size: 42px;
-    font-weight: 600;
-    line-height: 1.36;
-}
-
-.campaign-copy h1 span {
-    display: block;
-}
-
-.campaign-description {
-    max-width: 340px;
-    margin: 18px 0 0;
-    color: rgba(248, 243, 233, 0.86);
-    font-size: 14px;
-    line-height: 1.8;
-}
-
-.campaign-product {
-    margin: 22px 0 0;
-    color: #fff9ef;
-    font-size: 11px;
-    font-weight: 700;
-}
-
-.campaign-product span {
-    color: rgba(248, 243, 233, 0.7);
-    font-weight: 400;
 }
 
 .coupon-plane:focus-visible,
@@ -692,14 +704,6 @@ button {
         width: min(360px, 42vw);
     }
 
-    .campaign-copy h1 {
-        font-size: 34px;
-    }
-
-    .campaign-description {
-        font-size: 12px;
-    }
-
     .campaign-footer {
         right: 20px;
         bottom: 17px;
@@ -724,113 +728,105 @@ button {
 
 @media (max-width: 560px), (orientation: portrait) {
     .coupon-plane {
-        top: 24%;
-        left: 4%;
-        width: min(108px, 24vw, 11vh);
-        grid-template-columns: 1fr;
-        gap: 0;
+        top: 27%;
+        left: clamp(34px, 6vw, 76px);
+        width: min(560px, 88vw);
+        --coupon-reveal-shift: 5%;
     }
 
-    .coupon-plane-copy {
-        position: absolute;
-        top: -28px;
-        left: 0;
-        width: max-content;
-        gap: 2px;
-        padding: 0;
-        border: 0;
+    .coupon-ticket {
+        grid-template-columns: clamp(110px, 17vw, 190px) minmax(0, 1fr);
+        gap: clamp(10px, 1.5vw, 20px);
+        min-height: clamp(132px, 16vh, 240px);
+        padding: clamp(10px, 1.4vw, 20px);
     }
 
-    .coupon-plane-title {
-        font-size: 9px;
+    .coupon-ticket-qr-frame {
+        width: 100%;
+        justify-self: start;
     }
 
-    .coupon-plane-qr,
-    .coupon-plane-qr-status {
-        width: min(108px, 24vw, 11vh);
+    .coupon-ticket-copy {
+        gap: clamp(5px, 0.7vh, 12px);
     }
 
     .coupon-plane-qr-status {
-        font-size: 9px;
+        font-size: clamp(8px, 0.8vw, 12px);
     }
 
     .photo-parallax {
-        inset: 3% 0 auto;
-        height: 41%;
+        inset: clamp(80px, 9vh, 170px) 0 auto;
+        height: 39%;
     }
 
     .product-photo {
         object-fit: contain;
-        scale: 0.68;
+        scale: 0.9;
     }
 
     .photo-stage[data-product="steak"] .product-photo {
-        translate: 14% 0;
+        translate: 0 0;
     }
 
     .campaign-header {
+        top: clamp(18px, 2.8vh, 44px);
+        right: clamp(18px, 5vw, 64px);
+        left: clamp(18px, 5vw, 64px);
         align-items: flex-start;
+    }
+
+    .brand-mark {
+        width: clamp(30px, 3.5vh, 52px);
+        height: clamp(30px, 3.5vh, 52px);
+    }
+
+    .brand-name {
+        font-size: clamp(13px, 1.2vh, 18px);
+    }
+
+    .brand-edition {
+        font-size: clamp(9px, 0.9vh, 14px);
     }
 
     .camera-status {
         position: absolute;
-        top: 42px;
+        top: calc(clamp(18px, 2.8vh, 44px) + clamp(34px, 4vh, 62px));
         right: 0;
-        max-width: min(240px, 68vw);
+        max-width: min(360px, 72vw);
         justify-content: flex-end;
+        font-size: clamp(10px, 1vh, 15px);
         text-align: right;
     }
 
     .photo-shade {
-        background: linear-gradient(0deg, rgba(9, 12, 10, 0.78), rgba(9, 12, 10, 0.08) 42%, transparent 68%);
+        background: linear-gradient(0deg, rgba(9, 12, 10, 0.9), rgba(9, 12, 10, 0.22) 24%, transparent 58%);
     }
 
     .campaign-copy {
-        top: 46%;
-        right: 6%;
+        top: 50%;
+        right: 7%;
         bottom: auto;
-        left: 6%;
+        left: 7%;
         width: auto;
         transform: none;
     }
 
-    .campaign-kicker {
-        margin-bottom: 8px;
-        font-size: 12px;
-    }
-
-    .campaign-copy h1 {
-        font-size: 34px;
-        line-height: 1.25;
-    }
-
-    .campaign-description {
-        max-width: 560px;
-        margin-top: 9px;
-        font-size: 13px;
-        line-height: 1.55;
-    }
-
-    .campaign-product {
-        margin-top: 9px;
-        font-size: 11px;
-    }
-
     .campaign-footer {
-        right: 16px;
-        bottom: 17px;
-        left: 16px;
-        display: block;
+        right: clamp(16px, 5vw, 64px);
+        bottom: clamp(17px, 2.8vh, 52px);
+        left: clamp(16px, 5vw, 64px);
+        display: flex;
+        gap: clamp(10px, 2vw, 28px);
     }
 
     .stage-track {
         width: calc(100% - 104px);
-        gap: 14px;
+        gap: clamp(8px, 1.5vw, 18px);
     }
 
     .stage-marker {
-        gap: 7px;
-        font-size: 11px;
+        gap: clamp(6px, 0.8vh, 12px);
+        font-size: clamp(9px, 1vh, 16px);
     }
 
     .photo-credit,
@@ -842,17 +838,20 @@ button {
         position: absolute;
         right: 0;
         bottom: 0;
-        min-height: 34px;
+        min-height: clamp(34px, 4vh, 58px);
+        padding-inline: clamp(10px, 1.4vw, 18px);
+        font-size: clamp(10px, 0.95vw, 15px);
     }
 
     .verification-panel {
         top: auto;
-        right: 12px;
-        bottom: 68px;
-        left: 12px;
+        right: clamp(12px, 3vw, 40px);
+        bottom: clamp(68px, 8vh, 128px);
+        left: clamp(12px, 3vw, 40px);
         width: auto;
-        max-height: min(54vh, 470px);
-        padding: 12px;
+        max-height: min(54vh, 760px);
+        padding: clamp(12px, 1.5vw, 22px);
+        font-size: clamp(11px, 1vw, 15px);
     }
 
     .stage-rule {
@@ -860,84 +859,19 @@ button {
     }
 
     .debug-panel {
-        top: 82px;
-        left: 18px;
-        min-width: 200px;
-        padding: 9px 11px;
-        font-size: 9px;
-    }
-}
-
-@media (max-width: 420px) and (max-height: 900px) and (orientation: portrait) {
-    .campaign-copy {
-        top: 43%;
-        right: 5%;
-        left: 5%;
-    }
-
-    .campaign-copy h1 {
-        font-size: 29px;
-    }
-
-    .campaign-description {
-        font-size: 12px;
-    }
-
-    .stage-track {
-        gap: 8px;
-    }
-
-    .stage-marker {
-        font-size: 9px;
+        top: clamp(82px, 10vh, 180px);
+        left: clamp(18px, 5vw, 64px);
+        min-width: min(220px, 52vw);
+        padding: clamp(9px, 1vw, 15px);
+        font-size: clamp(9px, 0.9vw, 13px);
     }
 }
 
 @media (max-height: 720px) and (orientation: portrait) {
-    .coupon-plane-qr,
-    .coupon-plane-qr-status {
-        width: min(92px, 22vw, 12vh);
-    }
-}
-
-@media (min-height: 1000px) and (orientation: portrait) {
-    .photo-parallax {
-        inset: 3% 0 auto;
-        height: 41%;
-    }
-
     .campaign-copy {
-        top: 46%;
-        right: 7%;
-        left: 7%;
+        top: 47%;
     }
 
-    .campaign-kicker {
-        margin-bottom: 16px;
-        font-size: 16px;
-    }
-
-    .campaign-copy h1 {
-        font-size: 48px;
-    }
-
-    .campaign-description {
-        margin-top: 14px;
-        font-size: 18px;
-    }
-
-    .campaign-product {
-        font-size: 15px;
-    }
-
-    .campaign-footer {
-        right: 5%;
-        bottom: 30px;
-        left: 5%;
-    }
-
-    .stage-marker {
-        font-size: 15px;
-    }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -953,5 +887,998 @@ button {
 @media (prefers-reduced-motion: reduce) {
     .recording-indicator::before {
         animation: none;
+    }
+}
+
+:root {
+    color-scheme: light;
+    color: #261d17;
+    background: #f4eee4;
+}
+
+.ad-shell {
+    --ad-background: #24160f;
+    --ad-text-main: brightness(0) invert(0.94);
+    --ad-text-soft: brightness(0) invert(0.82);
+    --ad-text-gold: brightness(0) saturate(100%) invert(72%) sepia(24%) saturate(626%) hue-rotate(2deg) brightness(94%) contrast(88%);
+}
+
+.ad-shell,
+#container,
+.photo-stage {
+    background: var(--ad-background);
+}
+
+.campaign-header,
+.campaign-footer {
+    display: none;
+}
+
+.campaign-overlay {
+    z-index: 2;
+    background: linear-gradient(90deg, transparent 0 47%, color-mix(in srgb, var(--ad-background) 22%, transparent) 54%, color-mix(in srgb, var(--ad-background) 82%, transparent) 62%, var(--ad-background) 69% 100%);
+}
+
+.campaign-copy {
+    top: 50%;
+    right: 6%;
+    left: 64%;
+    width: 30%;
+    display: flex;
+    align-items: center;
+    color: var(--campaign-text, #f6eee3);
+    text-shadow: none;
+    transform: translateY(-50%);
+}
+
+.stage-copy {
+    display: flex;
+    width: 100%;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: clamp(10px, 1.5vh, 18px);
+}
+
+.campaign-copy-part {
+    position: relative;
+    display: block;
+    flex: 0 0 auto;
+    overflow: hidden;
+}
+
+.campaign-copy-part img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    object-position: left center;
+}
+
+.campaign-copy-brand img,
+.coupon-copy-instruction img {
+    filter: var(--ad-text-gold);
+}
+
+.campaign-copy-headline img,
+.coupon-copy-detail img,
+.coupon-copy-action img {
+    filter: var(--ad-text-main);
+}
+
+.campaign-copy-support img {
+    filter: var(--ad-text-soft);
+}
+
+.campaign-copy-brand {
+    width: 32%;
+    max-width: 240px;
+    height: auto;
+    aspect-ratio: 3 / 1;
+}
+
+.campaign-copy-headline {
+    width: 78%;
+    max-width: 560px;
+    height: auto;
+    aspect-ratio: 2.4 / 1;
+    margin: 0;
+}
+
+.campaign-copy-headline:has(.campaign-text-headline) {
+    aspect-ratio: auto;
+    overflow: visible;
+}
+
+.campaign-copy-support {
+    width: 70%;
+    max-width: 500px;
+    height: auto;
+    aspect-ratio: 3 / 1;
+}
+
+.campaign-copy-support:has(.campaign-text-support) {
+    aspect-ratio: auto;
+    overflow: visible;
+}
+
+.campaign-text-brand {
+    display: block;
+    overflow: hidden;
+    color: var(--campaign-accent, #d8ae73);
+    font-family: "Yu Mincho", "Hiragino Mincho ProN", serif;
+    font-size: clamp(10px, 1.1vw, 18px);
+    line-height: 1.35;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.campaign-text-headline {
+    display: block;
+    color: var(--campaign-text, #f6eee3);
+    font-family: "Yu Mincho", "Hiragino Mincho ProN", serif;
+    font-size: clamp(20px, 3.3vw, 54px);
+    font-weight: 600;
+    line-height: 1.28;
+    white-space: pre-line;
+}
+
+.campaign-text-support {
+    display: grid;
+    gap: clamp(5px, 0.8vh, 12px);
+    color: color-mix(in srgb, var(--campaign-text, #f6eee3) 82%, transparent);
+    font-family: "Yu Mincho", "Hiragino Mincho ProN", serif;
+    font-size: clamp(10px, 1.12vw, 17px);
+    line-height: 1.65;
+}
+
+.campaign-text-support span + span {
+    color: var(--campaign-accent, #d8ae73);
+}
+
+.screen-reader-copy {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+.photo-parallax {
+    inset: 0;
+    will-change: transform;
+}
+
+.product-photo {
+    object-fit: cover;
+    filter: none;
+    scale: 1;
+    translate: 0 0;
+}
+
+.photo-shade {
+    inset: 0;
+    background: linear-gradient(180deg, transparent 52%, color-mix(in srgb, var(--ad-background) 72%, transparent));
+}
+
+.coupon-plane {
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 58%;
+    width: auto;
+    max-width: none;
+    padding: 0;
+    color: #261d17;
+    opacity: 0;
+    clip-path: none;
+    transform: translate3d(0, 8px, 0);
+    transition: opacity 320ms ease, transform 320ms ease;
+    will-change: opacity, transform;
+}
+
+.coupon-ticket {
+    grid-template-columns: minmax(0, 1fr) clamp(112px, 17vw, 190px);
+    align-content: center;
+    gap: clamp(12px, 2vw, 28px);
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    padding: clamp(26px, 5vw, 72px);
+    border: 0;
+    background: transparent;
+    color: var(--campaign-text, #f6eee3);
+    box-shadow: none;
+}
+
+.coupon-ticket::before {
+    display: none;
+}
+
+.coupon-ticket-qr-frame {
+    width: 100%;
+    padding: clamp(6px, 0.8vw, 10px);
+    border: 0;
+    background: #fff;
+}
+
+.coupon-ticket-copy {
+    display: flex;
+    align-content: center;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    gap: clamp(6px, 1vh, 14px);
+    min-width: 0;
+    padding: 0;
+}
+
+.coupon-copy-part {
+    position: relative;
+    display: block;
+    width: 100%;
+    flex: 0 0 auto;
+    overflow: hidden;
+}
+
+.coupon-copy-part img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    object-position: left center;
+}
+
+.coupon-copy-part img[hidden],
+.coupon-copy-text[hidden] {
+    display: none;
+}
+
+.coupon-copy-text {
+    display: block;
+    width: 100%;
+    color: var(--campaign-text, #f6eee3);
+    font-family: "Yu Mincho", "Hiragino Mincho ProN", serif;
+    font-size: clamp(12px, 1.7vw, 23px);
+    font-weight: 600;
+    line-height: 1.35;
+}
+
+.coupon-copy-detail .coupon-copy-text {
+    color: var(--campaign-accent, #d8ae73);
+    font-family: "Yu Gothic UI", "Meiryo", sans-serif;
+    font-size: clamp(12px, 1.35vw, 17px);
+    font-weight: 650;
+    letter-spacing: 0.08em;
+    line-height: 1.4;
+}
+
+.coupon-copy-action .coupon-copy-text {
+    font-size: clamp(20px, 3vw, 46px);
+}
+
+.coupon-copy-instruction .coupon-copy-text {
+    color: var(--campaign-accent, #d8ae73);
+    font-family: "Yu Gothic UI", "Meiryo", sans-serif;
+    font-size: clamp(12px, 1.4vw, 17px);
+    font-weight: 500;
+    letter-spacing: 0.015em;
+    line-height: 1.5;
+}
+
+.coupon-copy-detail {
+    width: 82%;
+    max-width: 460px;
+    height: auto;
+    aspect-ratio: 3 / 1;
+}
+
+.coupon-copy-action {
+    width: 76%;
+    max-width: 460px;
+    height: auto;
+    aspect-ratio: 3 / 1;
+}
+
+.coupon-copy-instruction {
+    width: 72%;
+    max-width: 420px;
+    height: auto;
+    aspect-ratio: 3 / 1;
+}
+
+.has-coupon-reveal .campaign-copy {
+    visibility: hidden;
+    opacity: 0;
+    transition: opacity 320ms ease;
+}
+
+@media (orientation: portrait), (max-width: 760px) {
+    .campaign-overlay {
+        background: linear-gradient(180deg, transparent 0 48%, color-mix(in srgb, var(--ad-background) 18%, transparent) 54%, color-mix(in srgb, var(--ad-background) 78%, transparent) 62%, var(--ad-background) 69% 100%);
+    }
+
+    .photo-parallax {
+        inset: 0 0 auto;
+        width: 100%;
+        height: 59%;
+    }
+
+    .product-photo {
+        object-position: center center;
+    }
+
+    .photo-shade {
+        inset: 0 0 auto;
+        height: 59%;
+        background: linear-gradient(180deg, transparent 52%, color-mix(in srgb, var(--ad-background) 72%, transparent));
+    }
+
+    .campaign-copy {
+        top: 59%;
+        right: 7%;
+        bottom: 4%;
+        left: 7%;
+        display: flex;
+        width: auto;
+        align-items: flex-start;
+        padding-top: clamp(10px, 1.6vh, 30px);
+        transform: none;
+    }
+
+    .stage-copy {
+        gap: clamp(6px, 0.65vh, 12px);
+    }
+
+    .campaign-copy-brand {
+        width: clamp(144px, 15vh, 230px);
+    }
+
+    .campaign-copy-headline {
+        width: clamp(280px, 36vh, 500px);
+    }
+
+    .campaign-copy-support {
+        width: clamp(280px, 32vh, 460px);
+    }
+
+    .campaign-text-headline {
+        font-size: clamp(23px, 5.1vw, 54px);
+    }
+
+    .campaign-text-support {
+        font-size: clamp(12px, 2.7vw, 18px);
+    }
+
+    .coupon-plane {
+        top: 59%;
+        right: 6%;
+        bottom: 4%;
+        left: 6%;
+        width: auto;
+        max-width: none;
+        margin-inline: auto;
+    }
+
+    .coupon-ticket {
+        grid-template-columns: minmax(0, 1fr) clamp(120px, 20vw, 220px);
+        align-content: start;
+        gap: clamp(12px, 2.4vw, 26px);
+        padding: clamp(10px, 1.6vh, 30px) 0 0;
+    }
+
+    .coupon-ticket-qr-frame {
+        padding: clamp(7px, 0.8vw, 11px);
+        background: #fffdf7;
+    }
+
+    .coupon-ticket-copy {
+        justify-content: flex-start;
+    }
+
+    .verification-panel {
+        z-index: 6;
+    }
+}
+
+@media (orientation: portrait) and (max-height: 720px) {
+    .campaign-overlay {
+        background: linear-gradient(180deg, transparent 0 46%, color-mix(in srgb, var(--ad-background) 22%, transparent) 53%, color-mix(in srgb, var(--ad-background) 82%, transparent) 62%, var(--ad-background) 69% 100%);
+    }
+
+    .photo-parallax,
+    .photo-shade {
+        height: 57%;
+    }
+
+    .campaign-copy {
+        top: 57%;
+        bottom: 3%;
+        padding-top: clamp(8px, 1.2vh, 18px);
+    }
+
+    .stage-copy {
+        gap: clamp(4px, 0.55vh, 8px);
+    }
+
+    .campaign-copy-brand {
+        width: clamp(130px, 14vh, 190px);
+    }
+
+    .campaign-copy-headline {
+        width: clamp(260px, 35vh, 440px);
+    }
+
+    .campaign-copy-support {
+        width: clamp(250px, 31vh, 410px);
+    }
+
+    .coupon-plane {
+        top: 57%;
+        bottom: 3%;
+    }
+
+    .coupon-ticket {
+        grid-template-columns: minmax(0, 1fr) clamp(100px, 19vw, 170px);
+        gap: clamp(8px, 2vw, 18px);
+        padding-top: clamp(8px, 1.2vh, 18px);
+    }
+}
+
+@media (orientation: portrait) and (max-height: 560px) {
+    .campaign-overlay {
+        background: linear-gradient(180deg, transparent 0 42%, color-mix(in srgb, var(--ad-background) 26%, transparent) 50%, color-mix(in srgb, var(--ad-background) 84%, transparent) 60%, var(--ad-background) 68% 100%);
+    }
+
+    .photo-parallax,
+    .photo-shade {
+        height: 53%;
+    }
+
+    .campaign-copy {
+        top: 53%;
+        bottom: 2%;
+        padding-top: 6px;
+    }
+
+    .coupon-plane {
+        top: 53%;
+        bottom: 2%;
+    }
+}
+
+@media (orientation: landscape) and (max-height: 600px) {
+    .campaign-copy {
+        width: min(30vw, 420px);
+    }
+
+    .stage-copy {
+        gap: 6px;
+    }
+
+    .campaign-copy-brand {
+        width: 28%;
+    }
+
+    .campaign-copy-headline {
+        width: 74%;
+    }
+
+    .campaign-copy-support {
+        width: 64%;
+    }
+}
+
+.coupon-copy-part:has(.coupon-copy-text:not([hidden])) {
+    height: auto;
+    overflow: visible;
+    aspect-ratio: auto;
+}
+
+.coupon-copy-action {
+    width: 100%;
+    max-width: none;
+}
+
+.coupon-copy-action .coupon-value-layout {
+    display: flex;
+    width: fit-content;
+    max-width: 100%;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 3px clamp(2px, 0.4vw, 7px);
+    color: var(--campaign-text, #f6eee3);
+    font-family: "Yu Gothic UI", "Meiryo", sans-serif;
+    line-height: 1;
+    white-space: nowrap;
+}
+
+.coupon-value-amount {
+    font-size: clamp(52px, 7vw, 92px);
+    font-variant-numeric: tabular-nums;
+    font-weight: 750;
+    letter-spacing: -0.045em;
+    line-height: 0.88;
+}
+
+.coupon-value-symbol {
+    align-self: flex-start;
+    margin-top: 0.08em;
+    color: var(--campaign-accent, #d8ae73);
+    font-size: clamp(23px, 3vw, 38px);
+    font-weight: 500;
+    line-height: 1;
+}
+
+.coupon-value-unit {
+    color: var(--campaign-text, #f6eee3);
+    font-size: clamp(14px, 1.7vw, 23px);
+    font-weight: 700;
+    letter-spacing: 0.08em;
+}
+
+.coupon-value-note {
+    flex-basis: 100%;
+    color: color-mix(in srgb, var(--campaign-text, #f6eee3) 68%, transparent);
+    font-family: "Yu Gothic UI", "Meiryo", sans-serif;
+    font-size: clamp(10px, 1vw, 13px);
+    font-weight: 500;
+    letter-spacing: 0.09em;
+    line-height: 1.3;
+}
+
+@media (orientation: portrait), (max-width: 760px) {
+    .coupon-ticket {
+        grid-template-columns: minmax(0, 1fr) clamp(120px, 20vw, 220px);
+        align-content: center;
+        align-items: center;
+        gap: clamp(14px, 2.4vw, 28px);
+        padding: clamp(12px, 1.8vh, 28px) 0 0;
+    }
+
+    .coupon-ticket-copy {
+        justify-content: center;
+        gap: clamp(8px, 1.35vh, 16px);
+    }
+
+    .coupon-copy-detail,
+    .coupon-copy-action,
+    .coupon-copy-instruction {
+        width: 100%;
+        max-width: none;
+        height: auto;
+        overflow: visible;
+        aspect-ratio: auto;
+    }
+
+    .coupon-copy-detail .coupon-copy-text {
+        color: var(--campaign-accent, #d8ae73);
+        font-family: "Yu Gothic UI", "Meiryo", sans-serif;
+        font-size: clamp(14px, 1.8vh, 20px);
+        font-weight: 650;
+        line-height: 1.4;
+    }
+
+    .coupon-copy-action .coupon-value-layout {
+        align-items: baseline;
+        gap: 4px clamp(3px, 0.8vw, 9px);
+    }
+
+    .coupon-value-amount {
+        font-size: clamp(54px, 12vw, 92px);
+    }
+
+    .coupon-value-symbol {
+        font-size: clamp(23px, 4.5vw, 36px);
+    }
+
+    .coupon-value-unit {
+        font-size: clamp(15px, 2.4vw, 24px);
+    }
+
+    .coupon-value-note {
+        font-size: clamp(11px, 1.5vh, 15px);
+    }
+
+    .coupon-copy-instruction .coupon-copy-text {
+        color: color-mix(in srgb, var(--campaign-text, #f6eee3) 76%, transparent);
+        font-family: "Yu Gothic UI", "Meiryo", sans-serif;
+        font-size: clamp(13px, 1.65vh, 18px);
+        line-height: 1.6;
+    }
+}
+
+.ad-shell[data-campaign-id="leather-tote"] .stage-copy {
+    gap: clamp(9px, 1.1vh, 18px);
+}
+
+.ad-shell[data-campaign-id="leather-tote"] .campaign-text-brand {
+    font-family: "Yu Gothic UI", "Meiryo", sans-serif;
+    font-size: clamp(13px, 1.4vw, 20px);
+    font-weight: 700;
+    letter-spacing: 0.04em;
+}
+
+.ad-shell[data-campaign-id="leather-tote"] .campaign-text-headline {
+    font-family: "Yu Gothic UI", "Meiryo", sans-serif;
+    font-size: clamp(25px, 4.2vw, 56px);
+    font-weight: 700;
+    line-height: 1.28;
+}
+
+.ad-shell[data-campaign-id="leather-tote"] .campaign-text-support {
+    gap: clamp(5px, 0.8vh, 12px);
+    font-family: "Yu Gothic UI", "Meiryo", sans-serif;
+    font-size: clamp(13px, 1.5vw, 21px);
+    line-height: 1.6;
+}
+
+.ad-shell[data-campaign-id="soft-serve"] .campaign-text-headline {
+    font-family: "Yu Gothic UI", "Meiryo", sans-serif;
+    font-size: clamp(27px, 4.4vw, 58px);
+    font-weight: 750;
+    line-height: 1.22;
+}
+
+.ad-shell[data-campaign-id="soft-serve"] .campaign-text-support {
+    font-family: "Yu Gothic UI", "Meiryo", sans-serif;
+    font-size: clamp(13px, 1.5vw, 21px);
+    line-height: 1.55;
+}
+
+.ad-shell[data-campaign-id="counter-burger"] .stage-copy {
+    gap: clamp(8px, 1.05vh, 16px);
+}
+
+.ad-shell[data-campaign-id="counter-burger"] .campaign-text-brand {
+    color: #a94334;
+    font-family: "Yu Gothic UI", "Meiryo", sans-serif;
+    font-size: clamp(12px, 1.35vw, 17px);
+    font-weight: 700;
+    letter-spacing: 0.035em;
+}
+
+.ad-shell[data-campaign-id="counter-burger"] .campaign-text-headline {
+    color: #2e342f;
+    font-family: "Yu Gothic UI", "Meiryo", sans-serif;
+    font-size: clamp(32px, 6vw, 58px);
+    font-weight: 800;
+    line-height: 1.16;
+}
+
+.ad-shell[data-campaign-id="counter-burger"] .campaign-text-support {
+    gap: clamp(6px, 0.8vh, 11px);
+    color: #566158;
+    font-family: "Yu Gothic UI", "Meiryo", sans-serif;
+    font-size: clamp(14px, 1.65vw, 21px);
+    font-weight: 500;
+    line-height: 1.5;
+}
+
+.ad-shell[data-campaign-id="counter-burger"] .campaign-text-support span + span {
+    color: #a94334;
+    font-size: 0.94em;
+    font-weight: 700;
+}
+
+.ad-shell[data-campaign-id="counter-burger"] .coupon-ticket {
+    align-content: center;
+    padding-top: clamp(14px, 2.4vh, 32px);
+    padding-bottom: clamp(14px, 2.4vh, 32px);
+}
+
+.ad-shell[data-campaign-id="counter-burger"] .coupon-ticket-copy {
+    gap: clamp(8px, 1.25vh, 15px);
+}
+
+.ad-shell[data-campaign-id="counter-burger"] .coupon-copy-detail .coupon-copy-text {
+    color: #a94334;
+    font-family: "Yu Gothic UI", "Meiryo", sans-serif;
+    font-size: clamp(13px, 1.6vw, 20px);
+    font-weight: 700;
+    letter-spacing: 0.025em;
+    line-height: 1.4;
+}
+
+.ad-shell[data-campaign-id="counter-burger"] .coupon-copy-action .coupon-value-layout {
+    flex-wrap: nowrap;
+    align-items: baseline;
+    gap: clamp(5px, 0.9vw, 12px);
+}
+
+.ad-shell[data-campaign-id="counter-burger"] .coupon-value-amount {
+    color: #2e342f;
+    font-size: clamp(52px, 7.5vw, 84px);
+    letter-spacing: -0.065em;
+}
+
+.ad-shell[data-campaign-id="counter-burger"] .coupon-value-symbol {
+    color: #a94334;
+    font-size: clamp(22px, 3vw, 34px);
+}
+
+.ad-shell[data-campaign-id="counter-burger"] .coupon-value-unit {
+    color: #2e342f;
+    font-size: clamp(18px, 2vw, 26px);
+    font-weight: 700;
+    letter-spacing: 0;
+}
+
+.ad-shell[data-campaign-id="counter-burger"] .coupon-value-note {
+    align-self: center;
+    padding-left: 0;
+    color: #566158;
+    font-size: clamp(11px, 1.15vw, 15px);
+    letter-spacing: 0.03em;
+}
+
+.ad-shell[data-campaign-id="counter-burger"] .coupon-copy-instruction .coupon-copy-text {
+    color: #566158;
+    font-family: "Yu Gothic UI", "Meiryo", sans-serif;
+    font-size: clamp(12px, 1.45vw, 18px);
+    font-weight: 600;
+    line-height: 1.5;
+}
+
+@media (orientation: portrait) and (max-height: 720px) {
+    .ad-shell[data-campaign-id="counter-burger"] .coupon-ticket-copy {
+        gap: 7px;
+    }
+
+    .ad-shell[data-campaign-id="counter-burger"] .coupon-value-amount {
+        font-size: clamp(50px, 11vw, 78px);
+    }
+
+    .ad-shell[data-campaign-id="counter-burger"] .coupon-value-symbol {
+        font-size: clamp(22px, 4vw, 32px);
+    }
+
+    .ad-shell[data-campaign-id="counter-burger"] .coupon-value-unit {
+        font-size: clamp(16px, 2vw, 21px);
+    }
+}
+
+@media (orientation: portrait), (max-width: 760px) {
+    .campaign-copy {
+        display: grid;
+        align-content: center;
+        justify-items: center;
+        padding: clamp(12px, 1.8vh, 26px) 0 clamp(8px, 1.2vh, 18px);
+    }
+
+    .stage-copy {
+        position: relative;
+        top: 0;
+        width: 100%;
+        align-items: center;
+        gap: clamp(6px, 0.75vh, 12px);
+        text-align: center;
+    }
+
+    .campaign-copy-part img {
+        object-position: center;
+        height: auto;
+    }
+
+    .campaign-copy-brand {
+        width: min(30vw, 340px);
+        max-width: 100%;
+        height: auto;
+        aspect-ratio: auto;
+        overflow: visible;
+    }
+
+    .campaign-copy-brand:has(.campaign-text-brand) {
+        width: auto;
+    }
+
+    .campaign-text-brand {
+        font-family: "Yu Gothic UI", "Meiryo", sans-serif;
+        font-size: clamp(12px, 1.3vh, 18px);
+        font-weight: 650;
+        letter-spacing: 0.1em;
+    }
+
+    .campaign-copy-headline {
+        width: min(52vw, 620px);
+        max-width: 100%;
+        height: auto;
+        aspect-ratio: auto;
+        overflow: visible;
+    }
+
+    .campaign-copy-headline:has(.campaign-text-headline) {
+        width: 100%;
+    }
+
+    .campaign-copy-headline:has(img:not([hidden])) {
+        width: min(52vw, 620px);
+    }
+
+    .campaign-text-headline {
+        font-size: clamp(28px, 3.3vh, 52px);
+        font-weight: 700;
+        line-height: 1.2;
+        text-align: center;
+        text-wrap: balance;
+    }
+
+    .campaign-copy-support,
+    .campaign-copy-support:has(.campaign-text-support) {
+        width: 100%;
+        max-width: none;
+        overflow: visible;
+    }
+
+    .campaign-copy-support:has(img:not([hidden])) {
+        width: min(56vw, 620px);
+        max-width: 100%;
+        height: auto;
+        aspect-ratio: auto;
+    }
+
+    .campaign-text-support {
+        gap: clamp(7px, 1.1vh, 13px);
+        font-size: clamp(13px, 1.5vh, 23px);
+        line-height: 1.6;
+        text-align: center;
+    }
+
+    .campaign-text-support span + span {
+        font-size: 1.04em;
+        font-weight: 650;
+    }
+
+    .ad-shell[data-campaign-id="counter-burger"] .campaign-text-headline {
+        font-size: clamp(28px, 3.3vh, 52px);
+        line-height: 1.2;
+        text-align: center;
+    }
+
+    .ad-shell[data-campaign-id="counter-burger"] .campaign-text-support {
+        font-size: clamp(13px, 1.5vh, 23px);
+        text-align: center;
+    }
+
+    .ad-shell[data-campaign-id="leather-tote"] .stage-copy {
+        gap: clamp(11px, 1.5vh, 21px);
+    }
+
+    .ad-shell[data-campaign-id="leather-tote"] .campaign-text-brand {
+        font-size: clamp(13px, 1.65vh, 19px);
+        letter-spacing: 0.13em;
+    }
+
+    .ad-shell[data-campaign-id="leather-tote"] .campaign-copy-headline {
+        width: min(100%, 40rem);
+    }
+
+    .ad-shell[data-campaign-id="leather-tote"] .campaign-text-headline {
+        font-size: clamp(30px, 3.6vh, 58px);
+        line-height: 1.2;
+        letter-spacing: -0.025em;
+        text-align: center;
+        text-wrap: balance;
+    }
+
+    .ad-shell[data-campaign-id="leather-tote"] .campaign-copy-support {
+        width: min(100%, 36rem);
+    }
+
+    .ad-shell[data-campaign-id="leather-tote"] .campaign-text-support {
+        gap: clamp(7px, 1vh, 14px);
+        font-size: clamp(14px, 1.7vh, 22px);
+        line-height: 1.55;
+        text-align: center;
+    }
+
+    .ad-shell[data-campaign-id="leather-tote"] .campaign-text-support span + span {
+        font-size: 0.94em;
+        font-weight: 650;
+        letter-spacing: 0.04em;
+    }
+}
+
+@media (orientation: portrait) {
+    .campaign-text-brand {
+        font-size: clamp(12px, 1.3vh, 18px);
+    }
+
+    .campaign-text-headline,
+    :is(
+        .ad-shell[data-campaign-id="leather-tote"],
+        .ad-shell[data-campaign-id="soft-serve"],
+        .ad-shell[data-campaign-id="counter-burger"]
+    ) .campaign-text-headline {
+        font-size: clamp(30px, 3.2vh, 52px);
+    }
+
+    .campaign-text-support,
+    :is(
+        .ad-shell[data-campaign-id="leather-tote"],
+        .ad-shell[data-campaign-id="soft-serve"],
+        .ad-shell[data-campaign-id="counter-burger"]
+    ) .campaign-text-support {
+        font-size: clamp(14px, 1.45vh, 23px);
+    }
+
+    .coupon-ticket {
+        grid-template-columns: minmax(0, 1fr) clamp(180px, 24vw, 300px);
+        gap: clamp(12px, 1.8vw, 24px);
+    }
+
+    .coupon-ticket-copy {
+        justify-content: center;
+        gap: clamp(7px, 0.8vh, 12px);
+    }
+
+    .coupon-copy-detail:has(img:not([hidden])) {
+        width: min(100%, 420px);
+        height: auto;
+        aspect-ratio: auto;
+        overflow: visible;
+    }
+
+    .coupon-copy-action:has(img:not([hidden])) {
+        width: min(100%, 460px);
+        height: auto;
+        aspect-ratio: auto;
+        overflow: visible;
+    }
+
+    .coupon-copy-instruction:has(img:not([hidden])) {
+        width: min(100%, 480px);
+        height: auto;
+        aspect-ratio: auto;
+        overflow: visible;
+    }
+
+    .coupon-copy-part:has(img:not([hidden])) img {
+        height: auto;
+    }
+
+    .coupon-ticket-qr-frame {
+        padding: clamp(9px, 1vw, 16px);
+    }
+
+    .coupon-copy-detail .coupon-copy-text,
+    .ad-shell[data-campaign-id="counter-burger"] .coupon-copy-detail .coupon-copy-text {
+        font-size: clamp(15px, 1.5vh, 24px);
+    }
+
+    .coupon-copy-action .coupon-copy-text {
+        font-size: clamp(24px, 2.6vh, 40px);
+    }
+
+    .coupon-value-amount,
+    .ad-shell[data-campaign-id="counter-burger"] .coupon-value-amount {
+        font-size: clamp(60px, 5.2vh, 92px);
+    }
+
+    .coupon-value-symbol,
+    .ad-shell[data-campaign-id="counter-burger"] .coupon-value-symbol {
+        font-size: clamp(24px, 2.4vh, 36px);
+    }
+
+    .coupon-value-unit,
+    .ad-shell[data-campaign-id="counter-burger"] .coupon-value-unit {
+        font-size: clamp(18px, 1.7vh, 27px);
+    }
+
+    .coupon-value-note {
+        font-size: clamp(12px, 1.3vh, 18px);
+    }
+
+    .coupon-copy-instruction .coupon-copy-text,
+    .ad-shell[data-campaign-id="counter-burger"] .coupon-copy-instruction .coupon-copy-text {
+        font-size: clamp(14px, 1.45vh, 22px);
+    }
+}
+
+@media (orientation: portrait) and (max-height: 720px) {
+    .coupon-ticket {
+        grid-template-columns: minmax(0, 1fr) clamp(120px, 26vw, 210px);
     }
 }

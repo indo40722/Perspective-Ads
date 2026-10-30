@@ -1,0 +1,85 @@
+{
+  "id": "counter-burger",
+  "name": "まちのバーガー｜ダブルチーズ",
+  "advertiser": "まちのバーガー",
+  "itemName": "ダブルチーズバーガー",
+  "itemNameImage": "",
+  "photos": [
+    {
+      "src": "./assets/counter-burger-overview.png",
+      "alt": "明るいカウンターに置かれたダブルチーズバーガー"
+    },
+    {
+      "src": "./assets/counter-burger-detail.png",
+      "alt": "バンズ、野菜、チーズ、パティの重なりが見えるバーガーの写真"
+    },
+    {
+      "src": "./assets/counter-burger-closeup.png",
+      "alt": "丸いバンズの形を残しながら具材の重なりを見せるダブルチーズバーガーの写真"
+    }
+  ],
+  "stages": [
+    {
+      "label": "できたて",
+      "eyebrow": "まちのバーガー",
+      "title": "肉厚パティに、\nとろけるチーズ。",
+      "description": "焼き目の香ばしさと、シャキッとレタス。",
+      "instruction": "少し横へ。具材の重なりを見つける。",
+      "headlineImage": "",
+      "supportImage": "",
+      "photo": 0,
+      "focus": { "scale": 1, "originX": 50, "originY": 50, "panX": 0, "panY": 0 },
+      "headlineMode": "text",
+      "supportMode": "text"
+    },
+    {
+      "label": "具材の重なり",
+      "eyebrow": "チーズと野菜",
+      "title": "しゃきっとレタス、\nとろけるチーズ。",
+      "description": "パティの焼き目まで、ひと目に。",
+      "instruction": "少し横へ。具材の層を見つける。",
+      "headlineImage": "",
+      "supportImage": "",
+      "photo": 1,
+      "focus": { "scale": 1.03, "originX": 50, "originY": 55, "panX": 0, "panY": 0 },
+      "headlineMode": "text",
+      "supportMode": "text"
+    },
+    {
+      "label": "中までひと目",
+      "eyebrow": "断面を見る",
+      "title": "中まで見たら、\nもうひと口。",
+      "description": "チーズの下に、焼き目のついたパティ。",
+      "instruction": "前へ近づいて、断面をのぞく。",
+      "headlineImage": "",
+      "supportImage": "",
+      "photo": 2,
+      "focus": { "scale": 1.02, "originX": 50, "originY": 57, "panX": 0, "panY": 0 },
+      "headlineMode": "text",
+      "supportMode": "text"
+    }
+  ],
+  "reward": {
+    "title": "見つけてくれてありがとう",
+    "detailTexts": {
+      "grill": "具材の重なりを見つけてくれてありがとう",
+      "cut": "断面を見つけた方へ"
+    },
+    "detailImages": {},
+    "detailAlts": {},
+    "actionImage": "",
+    "instructionImage": "",
+    "actionAlt": "特典を受け取る",
+    "instructionAlt": "QRを読み取って特典ページを開く",
+    "value": "50円引き",
+    "note": "QRを読み取って受け取る",
+    "qrMode": "url",
+    "qrUrl": "",
+    "chancePercent": 100
+  },
+  "theme": {
+    "background": "#F7F2E9",
+    "accent": "#C74435",
+    "text": "#2E342F"
+  }
+}

@@ -77,6 +77,26 @@ button {
     object-fit: cover;
 }
 
+.coupon-discovery {
+    padding: 18px 4px 0;
+    border-bottom: 1px solid rgba(248, 243, 233, 0.18);
+}
+
+.coupon-discovery h2 {
+    margin: 8px 0 0;
+    color: #f8f3e9;
+    font-size: 18px;
+    font-weight: 600;
+    line-height: 1.45;
+}
+
+.coupon-discovery > p:last-child {
+    margin: 7px 0 16px;
+    color: rgba(248, 243, 233, 0.68);
+    font-size: 12px;
+    line-height: 1.7;
+}
+
 .coupon-offer {
     padding: 24px 4px 0;
 }
@@ -327,6 +347,13 @@ button {
 .redeem-stats dd {
     margin: 7px 0 0;
     font: 700 24px Arial, sans-serif;
+}
+
+.redeem-choice-split {
+    display: block;
+    margin-top: 6px;
+    color: rgba(248, 243, 233, 0.58);
+    font-size: 9px;
 }
 
 .redeem-stats > p {

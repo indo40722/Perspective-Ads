@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import heroPhoto from "../assets/steak-photo-hero.png";
 import { requestCouponApi } from "./couponApi.js";
+import { getCouponDetail } from "./couponUrl.js";
 import { STEAK_AD } from "./steakAd.js";
 
 const createSessionId = () => {
@@ -38,16 +39,51 @@ const removeSessionId = (key) => {
 };
 
 export default function CouponPage() {
-    const campaignId = new URLSearchParams(window.location.search).get("campaign");
-    const isKnownCampaign = campaignId === STEAK_AD.id;
-    const claimStorageKey = `perspective-ads-${campaignId}-claim`;
-    const visitStorageKey = `perspective-ads-${campaignId}-visit`;
-    const [status, setStatus] = useState(isKnownCampaign ? "checking" : "invalid");
+    const query = window.location.search;
+    const campaignId = new URLSearchParams(query).get("campaign");
+    const detailId = getCouponDetail(query);
+    const [campaign, setCampaign] = useState(campaignId === STEAK_AD.id ? STEAK_AD : null);
+    const [campaignLoaded, setCampaignLoaded] = useState(false);
+    const [status, setStatus] = useState("checking");
     const [coupon, setCoupon] = useState(null);
     const [message, setMessage] = useState("");
+    const isKnownCampaign = Boolean(campaign && campaign.id === campaignId);
+    const detailStage = detailId === "grill"
+        ? campaign?.stages?.[1]
+        : detailId === "cut"
+            ? campaign?.stages?.[2]
+            : null;
+    const detailPhoto = detailStage ? campaign?.photos?.[detailStage.photo] : null;
+    const claimStorageKey = `perspective-ads-${campaignId}-claim`;
+    const visitStorageKey = `perspective-ads-${campaignId}-visit`;
 
     useEffect(() => {
-        if (!isKnownCampaign) return undefined;
+        if (!campaignId) {
+            setCampaign(null);
+            setCampaignLoaded(true);
+            setStatus("invalid");
+            return undefined;
+        }
+        let cancelled = false;
+        requestCouponApi(`/api/campaigns/${encodeURIComponent(campaignId)}`)
+            .then((savedCampaign) => {
+                if (cancelled) return;
+                setCampaign(savedCampaign);
+                setCampaignLoaded(true);
+                setStatus("checking");
+            })
+            .catch(() => {
+                if (cancelled) return;
+                if (campaignId === STEAK_AD.id) setCampaign(STEAK_AD);
+                else setCampaign(null);
+                setCampaignLoaded(true);
+                setStatus(campaignId === STEAK_AD.id ? "checking" : "invalid");
+            });
+        return () => { cancelled = true; };
+    }, [campaignId]);
+
+    useEffect(() => {
+        if (!campaignLoaded || !isKnownCampaign) return undefined;
         let cancelled = false;
 
         const loadCoupon = async () => {
@@ -81,7 +117,7 @@ export default function CouponPage() {
         return () => {
             cancelled = true;
         };
-    }, [campaignId, claimStorageKey, isKnownCampaign, visitStorageKey]);
+    }, [campaignId, campaignLoaded, claimStorageKey, isKnownCampaign, visitStorageKey]);
 
     const claimCoupon = async () => {
         const claimId = getOrCreateSessionId(claimStorageKey);
@@ -109,7 +145,11 @@ export default function CouponPage() {
         }
     };
 
-    if (!isKnownCampaign) {
+    if (!campaignLoaded) {
+        return <main className="coupon-page"><p className="coupon-state">広告情報を読み込んでいます</p></main>;
+    }
+
+    if (campaignLoaded && !isKnownCampaign) {
         return (
             <main className="coupon-page">
                 <header className="coupon-header">
@@ -127,17 +167,24 @@ export default function CouponPage() {
     return (
         <main className="coupon-page">
             <header className="coupon-header">
-                <span className="coupon-brand-mark">CH</span>
-                <span className="coupon-brand-name">CHAR STEAKHOUSE</span>
+                <span className="coupon-brand-mark">{campaign.advertiser.slice(0, 2)}</span>
+                <span className="coupon-brand-name">{campaign.advertiser}</span>
                 <span className="coupon-label">デモ特典</span>
             </header>
 
             <article className="coupon-content">
-                <img className="coupon-photo" src={heroPhoto} alt="炭火焼きステーキのコンセプト写真" />
+                <img className="coupon-photo" src={detailPhoto?.src ?? heroPhoto} alt={detailPhoto?.alt ?? "炭火焼きステーキのコンセプト写真"} />
+                {detailStage && (
+                    <section className="coupon-discovery" aria-label="広告で見つけた見どころ">
+                        <p className="coupon-eyebrow">広告で見つけた見どころ / {detailStage.eyebrow}</p>
+                        <h2>{detailStage.title.replace("\n", " ")}</h2>
+                        <p>{detailStage.description}</p>
+                    </section>
+                )}
                 <section className="coupon-offer" aria-live="polite">
                     <p className="coupon-eyebrow">広告の奥にあった特典</p>
-                    <h1>炭火焼き<br />リブアイ</h1>
-                    <p className="coupon-discount">{STEAK_AD.reward.value.split(" ")[0]} <span>OFF</span></p>
+                    <h1>{campaign.reward.title || campaign.itemName}</h1>
+                    <p className="coupon-discount">{campaign.reward.value}</p>
 
                     {status === "checking" && <p className="coupon-state">受け取り状況を確認しています</p>}
                     {status === "ready" && (

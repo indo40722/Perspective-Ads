@@ -1,0 +1,85 @@
+{
+  "id": "soft-serve",
+  "name": "まちかどソフト｜ミルクソフト",
+  "advertiser": "まちかどソフト",
+  "itemName": "ミルクソフト",
+  "itemNameImage": "",
+  "photos": [
+    {
+      "src": "./assets/soft-serve-overview.png",
+      "alt": "明るい売り場に立つ、バニラソフトクリームの全体写真"
+    },
+    {
+      "src": "./assets/soft-serve-swirl.png",
+      "alt": "ソフトクリームのなめらかな巻き目を近くから見た写真"
+    },
+    {
+      "src": "./assets/soft-serve-cone.png",
+      "alt": "ワッフルコーンとクリームの重なりを写した写真"
+    }
+  ],
+  "stages": [
+    {
+      "label": "ひと巻き目",
+      "eyebrow": "まちかどソフト",
+      "title": "ひと息ぶんの、\nしあわせ。",
+      "description": "冷たいミルクの、なめらかな口どけ。",
+      "instruction": "少し横へ動いて、巻き目を見てみる。",
+      "headlineImage": "",
+      "supportImage": "",
+      "photo": 0,
+      "focus": { "scale": 1, "originX": 50, "originY": 50, "panX": 0, "panY": 0 },
+      "headlineMode": "text",
+      "supportMode": "text"
+    },
+    {
+      "label": "なめらかな巻き目",
+      "eyebrow": "ミルクの質感",
+      "title": "くるり、重なる\nミルクのかたち。",
+      "description": "ふんわり巻いたクリームの輪郭。",
+      "instruction": "少し横へ動いて、巻き目を探す。",
+      "headlineImage": "",
+      "supportImage": "",
+      "photo": 1,
+      "focus": { "scale": 1.04, "originX": 50, "originY": 43, "panX": 0, "panY": 0 },
+      "headlineMode": "text",
+      "supportMode": "text"
+    },
+    {
+      "label": "コーンの食感",
+      "eyebrow": "コーンまでおいしく",
+      "title": "コーンの先まで、\nひと巻き。",
+      "description": "香ばしいコーンと、ひんやりクリーム。",
+      "instruction": "前へ近づいて、コーンとの重なりを見る。",
+      "headlineImage": "",
+      "supportImage": "",
+      "photo": 2,
+      "focus": { "scale": 1.02, "originX": 50, "originY": 76, "panX": 0, "panY": 0 },
+      "headlineMode": "text",
+      "supportMode": "text"
+    }
+  ],
+  "reward": {
+    "title": "見つけてくれてありがとう",
+    "detailTexts": {
+      "grill": "巻き目まで見つけてくれてありがとう",
+      "cut": "コーンの先まで見てくれてありがとう"
+    },
+    "detailImages": {},
+    "detailAlts": {},
+    "actionImage": "",
+    "instructionImage": "",
+    "actionAlt": "特典を受け取る",
+    "instructionAlt": "QRを読み取って特典ページを開く",
+    "value": "50円引き",
+    "note": "QRを読み取ると、特典ページが開きます",
+    "qrMode": "url",
+    "qrUrl": "",
+    "chancePercent": 100
+  },
+  "theme": {
+    "background": "#F4F0E3",
+    "accent": "#C74B3C",
+    "text": "#3D3025"
+  }
+}

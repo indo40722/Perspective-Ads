@@ -1,0 +1,18 @@
+{
+  "name": "Perspective Ads サイネージ",
+  "short_name": "Perspective Ads",
+  "description": "公開中の広告を表示するサイネージ画面",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#17191d",
+  "theme_color": "#20242b",
+  "icons": [
+    {
+      "src": "./pwa-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

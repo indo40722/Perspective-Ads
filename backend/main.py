@@ -1,5 +1,6 @@
 import cv2
 import mediapipe as mp
+import numpy as np
 import socketio
 import uvicorn
 from fastapi import FastAPI
@@ -12,16 +13,18 @@ import uuid
 import re
 from datetime import datetime
 from pathlib import Path
-from gestures import is_hand_pinched
-from face_tracking import estimate_face_scale
+from face_tracking import create_far_face_crop, estimate_face_scale, map_landmark_to_frame
 from coupons import CouponStore
+from campaigns import CAMPAIGN_ID_PATTERN, CampaignStore
 from fastapi import HTTPException, Request
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 
 # --- 設定 ---
-CAMERA_ID = 0  # WebカメラのID
-WIDTH, HEIGHT = 640, 480
+CAMERA_ID = int(os.getenv("PERSPECTIVE_CAMERA_ID", "1"))  # 外付けWebカメラを既定で選ぶ
+CAMERA_WIDTH, CAMERA_HEIGHT = 1280, 720
+CAMERA_RESOLUTIONS = ((CAMERA_WIDTH, CAMERA_HEIGHT), (640, 480))
+CAMERA_RECORDING_FPS = 30.0
 CAMERA_ENABLED = os.getenv("PERSPECTIVE_CAMERA_ENABLED", "1").strip().lower() not in {"0", "false", "no", "off"}
 
 # --- スレッド間で共有する状態 ---
@@ -45,7 +48,12 @@ active_camera_recording = None
 completed_camera_recordings = {}
 connected_socket_ids = set()
 recordings_dir = Path(__file__).resolve().parent / "recordings"
+camera_frame_size = (CAMERA_WIDTH, CAMERA_HEIGHT)
 coupon_store = None
+campaign_store = None
+backend_dir = Path(__file__).resolve().parent
+campaign_assets_dir = backend_dir / "data" / "campaign-assets"
+campaign_assets_dir.mkdir(parents=True, exist_ok=True)
 
 # --- FastAPIとSocket.IOの設定 ---
 sio = socketio.AsyncServer(async_mode='asgi', cors_allowed_origins='*')
@@ -53,13 +61,14 @@ app = FastAPI()
 sio_app = socketio.ASGIApp(sio, app)
 
 # フロントエンドの静的ファイルを配信する。
-# backend/main.pyから見て../frontend/distを参照する。
+# このファイルの位置から一つ上のfrontend/distを参照する。
 frontend_dir = os.path.join(os.path.dirname(__file__), '../frontend/dist')
 if os.path.isdir(frontend_dir):
     app.mount("/view", StaticFiles(directory=frontend_dir, html=True), name="view")
     print(f"Frontend mounted at http://localhost:8000/view/")
 else:
     print(f"フロントエンドのビルドがありません。先に npm --prefix frontend run build を実行してください: {frontend_dir}")
+app.mount("/campaign-assets", StaticFiles(directory=campaign_assets_dir), name="campaign-assets")
 
 @app.get("/")
 async def root():
@@ -143,8 +152,8 @@ async def start_camera_recording(request: Request):
         writer = cv2.VideoWriter(
             str(path),
             cv2.VideoWriter_fourcc(*"MJPG"),
-            15.0,
-            (WIDTH, HEIGHT),
+            CAMERA_RECORDING_FPS,
+            camera_frame_size,
         )
         if not writer.isOpened():
             writer.release()
@@ -253,6 +262,117 @@ def get_coupon_store():
     return coupon_store
 
 
+def get_campaign_store():
+    global campaign_store
+
+    if campaign_store is None:
+        database_path = os.getenv("PERSPECTIVE_CAMPAIGN_DB")
+        if not database_path:
+            database_path = backend_dir / "data" / "campaigns.sqlite3"
+        campaign_store = CampaignStore(database_path)
+    return campaign_store
+
+
+@app.get("/api/campaigns")
+async def list_campaigns():
+    return get_campaign_store().list_campaigns()
+
+
+@app.get("/api/campaigns/active")
+async def get_active_campaign():
+    return get_campaign_store().get_active()
+
+
+@app.get("/api/campaigns/{campaign_id}")
+async def get_campaign(campaign_id: str):
+    campaign = get_campaign_store().get(campaign_id)
+    if campaign is None:
+        raise HTTPException(status_code=404, detail="広告が見つかりません")
+    return campaign
+
+
+@app.post("/api/campaigns")
+async def create_campaign(request: Request):
+    require_same_origin(request)
+    try:
+        campaign = await request.json()
+        if not isinstance(campaign, dict):
+            raise ValueError("広告データの形式が正しくありません")
+        if get_campaign_store().get(campaign.get("id", "")):
+            raise HTTPException(status_code=409, detail="この広告IDはすでに使われています")
+        return get_campaign_store().save(campaign, activate=True)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.put("/api/campaigns/{campaign_id}")
+async def save_campaign(campaign_id: str, request: Request):
+    require_same_origin(request)
+    try:
+        campaign = await request.json()
+        if not isinstance(campaign, dict):
+            raise ValueError("広告データの形式が正しくありません")
+        if campaign.get("id") != campaign_id:
+            raise ValueError("広告IDが一致しません")
+        return get_campaign_store().save(campaign, activate=campaign.get("active", True))
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.post("/api/campaigns/active")
+async def activate_campaign(request: Request):
+    require_same_origin(request)
+    body = await request.json()
+    campaign_id = body.get("campaignId") if isinstance(body, dict) else None
+    if not isinstance(campaign_id, str) or not CAMPAIGN_ID_PATTERN.fullmatch(campaign_id):
+        raise HTTPException(status_code=400, detail="広告IDが正しくありません")
+    campaign = get_campaign_store().set_active(campaign_id)
+    if campaign is None:
+        raise HTTPException(status_code=404, detail="広告が見つかりません")
+    return campaign
+
+
+@app.post("/api/campaigns/{campaign_id}/assets")
+async def upload_campaign_asset(campaign_id: str, request: Request, kind: str, index: int = 0):
+    require_same_origin(request)
+    if not CAMPAIGN_ID_PATTERN.fullmatch(campaign_id) or kind not in {"photo", "headline", "support", "brand", "reward", "qr"}:
+        raise HTTPException(status_code=400, detail="画像の登録先が正しくありません")
+    if kind in {"photo", "headline", "support"} and index not in range(3):
+        raise HTTPException(status_code=400, detail="画像の順番が正しくありません")
+
+    data = await request.body()
+    if not data or len(data) > 16 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="画像は16MB以下で登録してください")
+
+    signatures = (
+        ("png", data.startswith(b"\x89PNG\r\n\x1a\n")),
+        ("jpg", data.startswith(b"\xff\xd8\xff")),
+        ("webp", len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP"),
+    )
+    extension = next((name for name, matches in signatures if matches), None)
+    decoded = cv2.imdecode(np.frombuffer(data, dtype=np.uint8), cv2.IMREAD_UNCHANGED)
+    if extension is None or decoded is None:
+        raise HTTPException(status_code=400, detail="PNG、JPEG、WebP画像を登録してください")
+    height, width = decoded.shape[:2]
+    if width > 8000 or height > 8000 or width * height > 40_000_000:
+        raise HTTPException(status_code=400, detail="画像は縦横8000px、4000万画素以内で登録してください")
+
+    filename = f"{uuid.uuid4().hex}.{extension}"
+    (campaign_assets_dir / filename).write_bytes(data)
+    return {"url": f"/campaign-assets/{filename}", "width": width, "height": height, "format": extension}
+
+
+@app.post("/api/campaigns/reward-draw")
+async def draw_campaign_reward(request: Request):
+    require_same_origin(request)
+    body = await request.json()
+    campaign_id = body.get("campaignId") if isinstance(body, dict) else None
+    session_id = body.get("sessionId") if isinstance(body, dict) else None
+    if not isinstance(campaign_id, str) or not CAMPAIGN_ID_PATTERN.fullmatch(campaign_id) or not validate_demo_token(session_id):
+        raise HTTPException(status_code=400, detail="特典抽選の情報が正しくありません")
+    return get_campaign_store().draw_reward(campaign_id, session_id)
+
+
 def coupon_response(coupon):
     return {
         "claimId": coupon["claim_id"],
@@ -274,9 +394,30 @@ async def record_coupon_visit(request: Request):
     body = await request.json()
     campaign_id = body.get("campaignId") if isinstance(body, dict) else None
     visit_id = body.get("visitId") if isinstance(body, dict) else None
-    if campaign_id != "steak" or not validate_demo_token(visit_id):
+    if not isinstance(campaign_id, str) or not CAMPAIGN_ID_PATTERN.fullmatch(campaign_id) or not validate_demo_token(visit_id):
         raise HTTPException(status_code=400, detail="広告の読み取り情報が正しくありません")
     return get_coupon_store().record_visit(visit_id, campaign_id)
+
+
+@app.post("/api/coupons/events")
+async def record_coupon_event(request: Request):
+    require_same_origin(request)
+    body = await request.json()
+    campaign_id = body.get("campaignId") if isinstance(body, dict) else None
+    session_id = body.get("sessionId") if isinstance(body, dict) else None
+    event_id = body.get("eventId") if isinstance(body, dict) else None
+    event_type = body.get("eventType") if isinstance(body, dict) else None
+    detail_id = body.get("detailId") if isinstance(body, dict) else None
+    if (
+        not isinstance(campaign_id, str)
+        or not CAMPAIGN_ID_PATTERN.fullmatch(campaign_id)
+        or not validate_demo_token(session_id)
+        or not validate_demo_token(event_id)
+        or event_type != "detail_found"
+        or detail_id not in {"grill", "cut"}
+    ):
+        raise HTTPException(status_code=400, detail="広告体験の記録が正しくありません")
+    return get_coupon_store().record_event(event_id, session_id, campaign_id, event_type, detail_id)
 
 
 @app.post("/api/coupons/claim")
@@ -285,7 +426,7 @@ async def claim_demo_coupon(request: Request):
     body = await request.json()
     campaign_id = body.get("campaignId") if isinstance(body, dict) else None
     claim_id = body.get("claimId") if isinstance(body, dict) else None
-    if campaign_id != "steak" or not validate_demo_token(claim_id):
+    if not isinstance(campaign_id, str) or not CAMPAIGN_ID_PATTERN.fullmatch(campaign_id) or not validate_demo_token(claim_id):
         raise HTTPException(status_code=400, detail="特典の受取情報が正しくありません")
     try:
         coupon = get_coupon_store().claim(claim_id, campaign_id)
@@ -334,6 +475,8 @@ def update_camera_status(status):
 
 
 def open_camera():
+    global camera_frame_size
+
     if os.name == "nt":
         backends = [
             ("DirectShow", cv2.CAP_DSHOW),
@@ -348,13 +491,18 @@ def open_camera():
             cap.release()
             continue
 
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, WIDTH)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, HEIGHT)
         cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-        success, image = cap.read()
-        if success:
-            print(f"カメラを起動しました。使用方式: {backend_name}")
-            return cap, image
+        for width, height in CAMERA_RESOLUTIONS:
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+            success, image = cap.read()
+            if success:
+                actual_height, actual_width = image.shape[:2]
+                if actual_width < width or actual_height < height:
+                    continue
+                camera_frame_size = (actual_width, actual_height)
+                print(f"カメラを起動しました。使用方式: {backend_name}、解像度: {actual_width}x{actual_height}")
+                return cap, image
         cap.release()
 
     return None, None
@@ -367,18 +515,18 @@ def camera_loop():
 
     print("MediaPipeを読み込んでいます...")
     mp_face_mesh = mp.solutions.face_mesh
-    mp_hands = mp.solutions.hands
     face_mesh = mp_face_mesh.FaceMesh(
         max_num_faces=1,
         refine_landmarks=False,
-        min_detection_confidence=0.5,
-        min_tracking_confidence=0.5
+        min_detection_confidence=0.35,
+        min_tracking_confidence=0.4
     )
-    hands = mp_hands.Hands(
-        max_num_hands=1,
-        model_complexity=0,
-        min_detection_confidence=0.55,
-        min_tracking_confidence=0.5,
+    far_face_mesh = mp_face_mesh.FaceMesh(
+        static_image_mode=False,
+        max_num_faces=1,
+        refine_landmarks=False,
+        min_detection_confidence=0.35,
+        min_tracking_confidence=0.4,
     )
 
     frame_id = 0
@@ -415,30 +563,34 @@ def camera_loop():
 
             image.flags.writeable = False
             image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-            results = face_mesh.process(image_rgb)
-            hand_results = hands.process(image_rgb)
+            face_region = (0.0, 0.0, 1.0, 1.0)
+            full_frame_results = face_mesh.process(image_rgb)
+            results = full_frame_results
+            full_frame_faces = full_frame_results.multi_face_landmarks
+            if not full_frame_faces or estimate_face_scale(full_frame_faces[0].landmark) < 0.18:
+                far_face_image, face_region = create_far_face_crop(image_rgb)
+                far_face_results = far_face_mesh.process(far_face_image)
+                if far_face_results.multi_face_landmarks:
+                    results = far_face_results
+                else:
+                    face_region = (0.0, 0.0, 1.0, 1.0)
 
             detected = bool(results.multi_face_landmarks)
             x = 0.0
             y = 0.0
             z = 0.0
             face_scale = 0.0
-            hand_detected = bool(hand_results.multi_hand_landmarks)
+            hand_detected = False
             hand_x = 0.0
             hand_pinched = False
             if detected:
                 face_landmarks = results.multi_face_landmarks[0].landmark
                 nose = face_landmarks[4]
-                x = (nose.x - 0.5) * 2
-                y = (nose.y - 0.5) * 2
-                z = nose.z
-                face_scale = estimate_face_scale(face_landmarks)
-            if hand_detected:
-                hand_landmarks = hand_results.multi_hand_landmarks[0].landmark
-                index_tip = hand_landmarks[8]
-                hand_x = index_tip.x
-                hand_pinched = is_hand_pinched(hand_landmarks)
-
+                full_x, full_y = map_landmark_to_frame(nose, face_region)
+                x = (full_x - 0.5) * 2
+                y = (full_y - 0.5) * 2
+                z = nose.z * face_region[2]
+                face_scale = estimate_face_scale(face_landmarks, face_region[2], face_region[3])
             frame_id += 1
             with latest_data_lock:
                 latest_data = {
@@ -460,7 +612,7 @@ def camera_loop():
         if not camera_stop_event.is_set():
             time.sleep(2)
     face_mesh.close()
-    hands.close()
+    far_face_mesh.close()
 
 # --- 検出データとカメラ状態を配信する ---
 async def broadcast_loop():

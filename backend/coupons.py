@@ -24,6 +24,14 @@ class CouponStore:
                     issued_at TEXT NOT NULL,
                     redeemed_at TEXT
                 );
+                CREATE TABLE IF NOT EXISTS coupon_events (
+                    event_id TEXT PRIMARY KEY,
+                    session_id TEXT NOT NULL,
+                    campaign_id TEXT NOT NULL,
+                    event_type TEXT NOT NULL CHECK (event_type IN ('detail_found', 'choice_committed')),
+                    detail_id TEXT NOT NULL CHECK (detail_id IN ('grill', 'cut')),
+                    created_at TEXT NOT NULL
+                );
                 """
             )
 
@@ -82,6 +90,14 @@ class CouponStore:
             ).fetchone()
         return dict(claim) if claim else None
 
+    def record_event(self, event_id, session_id, campaign_id, event_type, detail_id):
+        with self._connect() as connection:
+            connection.execute(
+                "INSERT OR IGNORE INTO coupon_events (event_id, session_id, campaign_id, event_type, detail_id, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (event_id, session_id, campaign_id, event_type, detail_id, self._now()),
+            )
+        return self.stats()
+
     def redeem(self, code):
         normalized_code = code.strip().upper()
         with self._connect() as connection:
@@ -109,9 +125,15 @@ class CouponStore:
             coupon_counts = connection.execute(
                 "SELECT status, COUNT(*) AS count FROM coupons GROUP BY status"
             ).fetchall()
+            event_counts = connection.execute(
+                "SELECT event_type, detail_id, COUNT(*) AS count FROM coupon_events GROUP BY event_type, detail_id"
+            ).fetchall()
         counts = {row["status"]: row["count"] for row in coupon_counts}
+        events = {(row["event_type"], row["detail_id"]): row["count"] for row in event_counts}
         return {
             "visits": visit_count,
             "issued": counts.get("issued", 0) + counts.get("redeemed", 0),
             "redeemed": counts.get("redeemed", 0),
+            "grillViews": events.get(("detail_found", "grill"), 0),
+            "cutViews": events.get(("detail_found", "cut"), 0),
         }
