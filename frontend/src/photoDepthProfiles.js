@@ -6,9 +6,9 @@ const profiles = {
         backgroundPhotoIndex: 0,
         subjectPhoto: steakForeground,
         detailPhoto: steakCrossSection,
-        subjectOffsetX: -6.6,
-        subjectOffsetY: 1.7,
-        subjectScale: 0.92,
+        subjectOffsetX: 0,
+        subjectOffsetY: 0,
+        subjectScale: 1.05,
     },
 };
 
