@@ -3,6 +3,7 @@ import { STEAK_AD } from "../steakAd.js";
 export function createDefaultCampaign() {
     return {
         id: STEAK_AD.id,
+        photoDepthProfile: STEAK_AD.photoDepthProfile,
         name: STEAK_AD.itemName,
         advertiser: "CHAR STEAKHOUSE",
         itemName: STEAK_AD.itemName,
@@ -33,6 +34,7 @@ export function createNewCampaign() {
     return {
         ...campaign,
         id: `campaign-${suffix}`,
+        photoDepthProfile: null,
         name: "新しい広告",
         advertiser: "広告主名を入力",
         itemName: "商品名を入力",

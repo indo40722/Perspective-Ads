@@ -16,6 +16,7 @@ const overviewFocus = { scale: 1, originX: 50, originY: 50, panX: 0, panY: 0 };
 
 export const STEAK_AD = {
     id: "steak",
+    photoDepthProfile: "steak",
     itemName: "炭火焼きリブアイ",
     itemNameImage: productNameImage,
     photos: [

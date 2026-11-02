@@ -1078,6 +1078,41 @@ button {
     translate: 0 0;
 }
 
+.photo-depth-backdrop,
+.photo-depth-subject,
+.photo-depth-detail {
+    position: absolute;
+    inset: 0;
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    pointer-events: none;
+    will-change: transform, opacity;
+}
+
+.photo-depth-backdrop {
+    z-index: 0;
+    filter: blur(clamp(7px, 1.05vw, 16px)) brightness(0.68);
+    opacity: 0.9;
+}
+
+.photo-depth-subject {
+    z-index: 1;
+    opacity: calc(1 - var(--cut-progress));
+    transition: opacity 100ms linear;
+}
+
+.photo-depth-detail {
+    z-index: 2;
+    opacity: var(--cut-progress);
+    transition: opacity 100ms linear;
+}
+
+.photo-stage[data-depth-mode="layered"] .product-photo {
+    opacity: 0;
+}
+
 .photo-shade {
     inset: 0;
     background: linear-gradient(180deg, transparent 52%, color-mix(in srgb, var(--ad-background) 72%, transparent));

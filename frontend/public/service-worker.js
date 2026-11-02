@@ -1,4 +1,4 @@
-const CACHE_VERSION = "perspective-app-v9";
+const CACHE_VERSION = "perspective-app-v10";
 const CAMPAIGN_CACHE = "perspective-published-v1";
 
 self.addEventListener("install", (event) => {
@@ -23,9 +23,9 @@ self.addEventListener("install", (event) => {
                     visited.add(entry);
                     const item = buildManifest[entry];
                     if (!item) return;
-                    const paths = [item.file, ...(item.css || [])];
+                    const paths = [item.file, ...(item.css || []), ...(item.assets || [])];
                     for (const path of paths) {
-                        if (/\.(js|css|woff2?|ttf|otf|svg)$/i.test(path || "")) files.add(path);
+                        if (/\.(js|css|woff2?|ttf|otf|svg|png|jpe?g|webp)$/i.test(path || "")) files.add(path);
                     }
                     for (const imported of item.imports || []) collectEntry(imported);
                 };
@@ -202,7 +202,7 @@ self.addEventListener("fetch", (event) => {
         return;
     }
 
-    if (/\.(js|css|woff2?|ttf|otf|svg|wasm|tflite)$/i.test(requestUrl.pathname)) {
+    if (/\.(js|css|woff2?|ttf|otf|svg|png|jpe?g|webp|wasm|tflite)$/i.test(requestUrl.pathname)) {
         event.respondWith((async () => {
             const appCache = await caches.open(CACHE_VERSION);
             const saved = await appCache.match(request);

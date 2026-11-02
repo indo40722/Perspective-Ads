@@ -1,3 +1,5 @@
+import { resolvePhotoDepthProfile } from "./photoDepthProfiles.js";
+
 const withoutDemoLabel = (value) => String(value ?? "").replace(/デモ/g, "").trim();
 
 function renderCouponValue(element, value) {
@@ -88,6 +90,27 @@ export function createShowcase(container, initialProduct) {
     const parallax = document.createElement("div");
     parallax.className = "photo-parallax";
 
+    const depthBackdrop = document.createElement("img");
+    depthBackdrop.className = "photo-depth-backdrop";
+    depthBackdrop.alt = "";
+    depthBackdrop.draggable = false;
+    depthBackdrop.setAttribute("aria-hidden", "true");
+    const depthSubject = document.createElement("img");
+    depthSubject.className = "photo-depth-subject";
+    depthSubject.alt = "";
+    depthSubject.draggable = false;
+    depthSubject.setAttribute("aria-hidden", "true");
+    const depthDetail = document.createElement("img");
+    depthDetail.className = "photo-depth-detail";
+    depthDetail.alt = "";
+    depthDetail.draggable = false;
+    depthDetail.setAttribute("aria-hidden", "true");
+    const handleDepthImageError = () => {
+        stage.dataset.depthMode = "";
+    };
+    [depthBackdrop, depthSubject, depthDetail].forEach((image) => image.addEventListener("error", handleDepthImageError));
+    parallax.append(depthBackdrop, depthSubject, depthDetail);
+
     const photos = [];
 
     const shade = document.createElement("div");
@@ -102,11 +125,66 @@ export function createShowcase(container, initialProduct) {
     (campaignOverlay ?? container).appendChild(couponPlane);
 
     let product = initialProduct;
+    let depthProfile = resolvePhotoDepthProfile(initialProduct);
     let stageIndex = 0;
     let selectedVariantIndex = initialProduct.defaultOptionIndex ?? 0;
     let variantPreview = false;
     let onSwipe = () => {};
     let pointerStartX = null;
+    let viewerOffset = 0;
+    let approachAmount = 0;
+    let activeFocus = initialProduct.stages[0].focus;
+
+    const setImageSource = (image, source) => {
+        if (image.dataset.source === source) return;
+        image.dataset.source = source;
+        if (source) image.src = source;
+        else image.removeAttribute("src");
+    };
+
+    const applyDepthMotion = () => {
+        if (!depthProfile || stage.dataset.depthMode !== "layered") return;
+        const normalizedX = Math.max(-1, Math.min(1, viewerOffset / 28));
+        const approach = Math.max(0, Math.min(1, approachAmount));
+        const width = stage.clientWidth;
+        const height = stage.clientHeight;
+        const focus = activeFocus;
+        const backdropX = -normalizedX * width * 0.006;
+        const subjectX = -normalizedX * width * 0.022;
+        const detailX = -normalizedX * width * 0.029;
+        const backdropY = -approach * height * 0.004;
+        const subjectY = -approach * height * 0.008;
+        const backdropScale = focus.scale * (1.025 + approach * 0.018);
+        const subjectScale = focus.scale * depthProfile.subjectScale * (1 + approach * 0.065);
+        const detailScale = focus.scale * depthProfile.subjectScale * (1 + approach * 0.075);
+
+        depthBackdrop.style.transform = `translate3d(${backdropX.toFixed(1)}px, ${backdropY.toFixed(1)}px, 0) scale(${backdropScale.toFixed(3)})`;
+        depthSubject.style.transform = `translate3d(${(focus.panX + depthProfile.subjectOffsetX).toFixed(2)}%, ${(focus.panY + depthProfile.subjectOffsetY).toFixed(2)}%, 0) translate3d(${subjectX.toFixed(1)}px, ${subjectY.toFixed(1)}px, 0) scale(${subjectScale.toFixed(3)})`;
+        depthDetail.style.transform = `translate3d(${(focus.panX + depthProfile.subjectOffsetX).toFixed(2)}%, ${(focus.panY + depthProfile.subjectOffsetY).toFixed(2)}%, 0) translate3d(${detailX.toFixed(1)}px, ${subjectY.toFixed(1)}px, 0) scale(${detailScale.toFixed(3)})`;
+    };
+
+    const syncDepthScene = (photoIndex) => {
+        if (!depthProfile) {
+            stage.dataset.depthMode = "";
+            return;
+        }
+
+        const backgroundPhoto = product.photos[depthProfile.backgroundPhotoIndex ?? photoIndex];
+        if (!backgroundPhoto?.src) {
+            stage.dataset.depthMode = "";
+            return;
+        }
+
+        stage.dataset.depthMode = "layered";
+        parallax.style.transform = "none";
+        setImageSource(depthBackdrop, backgroundPhoto.src);
+        setImageSource(depthSubject, depthProfile.subjectPhoto);
+        setImageSource(depthDetail, depthProfile.detailPhoto);
+        [depthBackdrop, depthSubject, depthDetail].forEach((image) => {
+            image.style.transformOrigin = `${activeFocus.originX}% ${activeFocus.originY}%`;
+        });
+        applyDepthMotion();
+    };
 
     const resizePhotoLayers = (count) => {
         while (photos.length < count) {
@@ -127,6 +205,7 @@ export function createShowcase(container, initialProduct) {
         stageIndex = Math.max(0, Math.min(product.stages.length - 1, nextIndex));
         const current = product.stages[stageIndex];
         const focus = current.focus;
+        activeFocus = focus;
         const selectedPhoto = product.variants?.[selectedVariantIndex]?.photo;
         const photoIndex = current.variantPhotos?.[selectedVariantIndex]
             ?? (variantPreview ? selectedPhoto : undefined)
@@ -138,12 +217,16 @@ export function createShowcase(container, initialProduct) {
             photo.style.transformOrigin = `${focus.originX}% ${focus.originY}%`;
             photo.style.transform = `translate3d(${focus.panX}%, ${focus.panY}%, 0) scale(${focus.scale})`;
         });
+        syncDepthScene(photoIndex);
         stage.dataset.product = product.id;
         stage.dataset.stage = current.label;
     };
 
     const setProduct = (nextProduct) => {
         product = nextProduct;
+        depthProfile = resolvePhotoDepthProfile(product);
+        viewerOffset = 0;
+        approachAmount = 0;
         stageIndex = 0;
         selectedVariantIndex = product.defaultOptionIndex ?? 0;
         variantPreview = false;
@@ -258,10 +341,14 @@ export function createShowcase(container, initialProduct) {
             const horizontalShift = -normalizedX * Math.min(stage.clientWidth * 0.035, 24);
             const verticalShift = -Math.max(0, Math.min(1, forwardProgress)) * Math.min(stage.clientHeight * 0.012, 12);
             const productScale = 1 + Math.max(0, Math.min(1, forwardProgress)) * 0.02;
-            parallax.style.transform = `translate3d(${horizontalShift.toFixed(1)}px, ${verticalShift.toFixed(1)}px, 0) scale(${productScale.toFixed(3)})`;
+            viewerOffset = Number.isFinite(viewerX) ? viewerX : 0;
+            approachAmount = Number.isFinite(forwardProgress) ? forwardProgress : 0;
+            if (depthProfile && stage.dataset.depthMode === "layered") applyDepthMotion();
+            else parallax.style.transform = `translate3d(${horizontalShift.toFixed(1)}px, ${verticalShift.toFixed(1)}px, 0) scale(${productScale.toFixed(3)})`;
         },
         setCutProgress(value) {
-            stage.style.setProperty("--cut-progress", Math.max(0, Math.min(1, value)).toFixed(3));
+            const progressValue = Math.max(0, Math.min(1, value));
+            stage.style.setProperty("--cut-progress", progressValue.toFixed(3));
         },
         setProduct,
         setStage,
@@ -274,6 +361,8 @@ export function createShowcase(container, initialProduct) {
         },
         reset() {
             parallax.style.transform = "translate3d(0, 0, 0)";
+            viewerOffset = 0;
+            approachAmount = 0;
             couponPlane.style.transform = "translate3d(0, 8px, 0)";
             couponPlane.style.opacity = "0";
             couponPlane.style.pointerEvents = "none";
@@ -284,6 +373,7 @@ export function createShowcase(container, initialProduct) {
             variantPreview = false;
             stage.style.setProperty("--cut-progress", "0");
             setStage(0);
+            applyDepthMotion();
             progress.style.setProperty("--gaze-progress", "0");
         },
         dispose() {
@@ -291,6 +381,7 @@ export function createShowcase(container, initialProduct) {
             stage.removeEventListener("pointermove", handlePointerMove);
             stage.removeEventListener("pointerup", handlePointerUp);
             stage.removeEventListener("pointercancel", handlePointerUp);
+            [depthBackdrop, depthSubject, depthDetail].forEach((image) => image.removeEventListener("error", handleDepthImageError));
             couponPlane.remove();
             stage.remove();
         },
