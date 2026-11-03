@@ -1,4 +1,10 @@
 export function createBrowserFaceTracker({ wasmRoot, modelUrl, onFace, onFaceLost, onStatus }) {
+    const retryableCameraErrors = new Set([
+        "AbortError",
+        "NotFoundError",
+        "NotReadableError",
+        "OverconstrainedError",
+    ]);
     let stream = null;
     let video = null;
     let worker = null;
@@ -125,6 +131,58 @@ export function createBrowserFaceTracker({ wasmRoot, modelUrl, onFace, onFaceLos
         if (notify) onStatus?.("stopped");
     };
 
+    const openCamera = async (preferredDeviceId) => {
+        const triedDeviceIds = new Set();
+        const failures = [];
+        const open = async (deviceId) => {
+            const key = deviceId || "__default__";
+            if (triedDeviceIds.has(key)) return null;
+            triedDeviceIds.add(key);
+            try {
+                return await navigator.mediaDevices.getUserMedia({
+                    audio: false,
+                    video: {
+                        ...(deviceId ? { deviceId: { exact: deviceId } } : { facingMode: "user" }),
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 },
+                        frameRate: { ideal: 30, max: 30 },
+                    },
+                });
+            } catch (error) {
+                if (!retryableCameraErrors.has(error?.name)) throw error;
+                failures.push(error);
+                return null;
+            }
+        };
+
+        if (preferredDeviceId) {
+            const preferredStream = await open(preferredDeviceId);
+            if (preferredStream) return preferredStream;
+        } else {
+            const defaultStream = await open("");
+            if (defaultStream) return defaultStream;
+        }
+
+        let devices = [];
+        try {
+            devices = (await navigator.mediaDevices.enumerateDevices())
+                .filter((device) => device.kind === "videoinput" && device.deviceId);
+        } catch {
+            // 端末一覧を取得できない場合も、既定カメラでの再試行を続ける。
+        }
+
+        for (const device of devices) {
+            const alternateStream = await open(device.deviceId);
+            if (alternateStream) return alternateStream;
+        }
+
+        const defaultStream = await open("");
+        if (defaultStream) return defaultStream;
+
+        const readableFailure = failures.find((error) => error.name === "NotReadableError");
+        throw readableFailure || failures[0] || new Error("利用できるカメラが見つかりません");
+    };
+
     const start = async ({ deviceId } = {}) => {
         if (running) return stream;
         if (!navigator.mediaDevices?.getUserMedia) {
@@ -132,16 +190,9 @@ export function createBrowserFaceTracker({ wasmRoot, modelUrl, onFace, onFaceLos
         }
 
         onStatus?.("starting");
+        let failureStage = "camera";
         try {
-            stream = await navigator.mediaDevices.getUserMedia({
-                audio: false,
-                video: {
-                    ...(deviceId ? { deviceId: { exact: deviceId } } : { facingMode: "user" }),
-                    width: { ideal: 1280 },
-                    height: { ideal: 720 },
-                    frameRate: { ideal: 30, max: 30 },
-                },
-            });
+            stream = await openCamera(deviceId);
 
             video = document.createElement("video");
             video.muted = true;
@@ -161,6 +212,7 @@ export function createBrowserFaceTracker({ wasmRoot, modelUrl, onFace, onFaceLos
                 readyRejecter = reject;
             });
             worker.postMessage({ type: "initialize", wasmRoot, modelUrl });
+            failureStage = "face-detection";
             await Promise.all([video.play(), ready]);
 
             running = true;
@@ -169,7 +221,10 @@ export function createBrowserFaceTracker({ wasmRoot, modelUrl, onFace, onFaceLos
             return stream;
         } catch (error) {
             stop({ notify: false });
-            throw error;
+            const failure = new Error(error?.message || "カメラを起動できませんでした");
+            failure.name = error?.name || "Error";
+            failure.trackingStage = failureStage;
+            throw failure;
         }
     };
 

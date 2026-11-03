@@ -35,6 +35,27 @@ const saveBrowserCameraDeviceId = (deviceId) => {
     }
 };
 
+const describeBrowserCameraError = (error) => {
+    switch (error?.name) {
+        case "NotAllowedError":
+            return "ブラウザーまたはWindowsでカメラの使用を許可してください";
+        case "NotFoundError":
+        case "OverconstrainedError":
+            return "利用できるカメラが見つかりません。カメラの接続を確認してください";
+        case "NotReadableError":
+        case "AbortError":
+            return "カメラが他のアプリで使用中か、端末が応答していません。Teamsなどを終了して再試行してください";
+        case "SecurityError":
+            return "このページからカメラを利用できません。HTTPSでサイネージを開いてください";
+        default:
+            if (error?.trackingStage === "face-detection") {
+                return "顔検知の準備に失敗しました。通信状態を確認して、ページを再読み込みしてください";
+            }
+            if (error?.message?.startsWith("このブラウザーではカメラを利用できません")) return error.message;
+            return "カメラを起動できませんでした。カメラの接続を確認し、別のカメラを選んで再試行してください";
+    }
+};
+
 const createDemoToken = () => {
     const bytes = new Uint8Array(24);
     window.crypto.getRandomValues(bytes);
@@ -709,13 +730,17 @@ export default function App() {
                         }
                         return true;
                     } catch (error) {
-                        const message = error?.name === "NotAllowedError"
-                            ? "カメラの使用を許可してください"
-                            : error?.name === "NotFoundError"
-                                ? "利用できるカメラが見つかりません"
-                                : error?.name === "NotReadableError"
-                                    ? "他のアプリがカメラを使用中です"
-                                    : error?.message || "カメラを起動できませんでした";
+                        const message = describeBrowserCameraError(error);
+                        try {
+                            const devices = (await navigator.mediaDevices?.enumerateDevices?.() || [])
+                                .filter((device) => device.kind === "videoinput");
+                            setBrowserCameraDevices(devices);
+                            if (devices.length && !devices.some((device) => device.deviceId === browserCameraDeviceId)) {
+                                setBrowserCameraDeviceId(devices[0].deviceId);
+                            }
+                        } catch {
+                            // カメラ一覧を表示できなくても、原因メッセージはそのまま表示する。
+                        }
                         setBrowserCameraError(message);
                         cameraConnectedRef.current = false;
                         setCameraConnected(false);
