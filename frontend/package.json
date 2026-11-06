@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build && node scripts/copy-mediapipe-assets.mjs",
-    "test": "node --test src/discovery.test.js src/projection.test.js src/photoInteraction.test.js src/couponUrl.test.js src/adJourney.test.js"
+    "test": "node --test src/discovery.test.js src/projection.test.js src/photoInteraction.test.js src/couponUrl.test.js src/adJourney.test.js src/viewerSelection.test.js"
   },
   "dependencies": {
     "@fontsource-variable/geist": "^5.3.0",
