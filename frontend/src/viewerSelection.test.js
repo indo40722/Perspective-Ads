@@ -85,3 +85,16 @@ test("reward scanning grace period prevents immediate selection", () => {
   assert.equal(selector.update([face(0)], 800).state, "cooldown");
   assert.equal(selector.update([face(0)], 6800).state, "waiting");
 });
+
+test("crossing faces pause and release rather than transfer the lock", () => {
+  const selector = createViewerSelector();
+  assert.equal(engage(selector).state, "locked");
+  let result;
+  for (const [time, a, b] of [[600, 0.10, 0.40], [650, 0.14, 0.35],
+    [700, 0.20, 0.29], [750, 0.29, 0.20], [800, 0.35, 0.14],
+    [850, 0.40, 0.10]]) {
+    result = selector.update([face(a), face(b)], time);
+    if (time >= 700) assert.equal(result.face, null);
+  }
+  assert.equal(result.selectedId, null);
+});
