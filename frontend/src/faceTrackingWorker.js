@@ -1,7 +1,6 @@
 import { FaceDetector, FilesetResolver } from "@mediapipe/tasks-vision";
 
 let detector = null;
-let detectedInPreviousFrame = false;
 
 self.addEventListener("message", async (event) => {
     const message = event.data || {};
@@ -28,30 +27,24 @@ self.addEventListener("message", async (event) => {
 
     try {
         const result = detector.detectForVideo(message.frame, message.timestamp);
-        const detection = result.detections
+        const faces = (result.detections || [])
             .filter((item) => item.boundingBox)
-            .sort((left, right) => (right.categories?.[0]?.score || 0) - (left.categories?.[0]?.score || 0))[0];
-
-        if (!detection) {
-            if (detectedInPreviousFrame) self.postMessage({ type: "face_lost", frameId: message.frameId });
-            detectedInPreviousFrame = false;
-            self.postMessage({ type: "frame_done" });
-            return;
-        }
-
-        const box = detection.boundingBox;
-        const nose = detection.keypoints.find((keypoint) => keypoint.label?.toLowerCase().includes("nose"));
-        const centerX = nose?.x ?? (box.originX + box.width / 2) / message.width;
-        const faceScale = Math.sqrt((box.width / message.width) * (box.height / message.height));
-        detectedInPreviousFrame = true;
-        self.postMessage({
-            type: "face",
-            data: {
-                x: (centerX - 0.5) * 2,
-                face_scale: faceScale,
-                frame_id: message.frameId,
-            },
-        });
+            .sort((a, b) => (b.categories?.[0]?.score || 0) - (a.categories?.[0]?.score || 0))
+            .slice(0, 8)
+            .map((detection) => {
+                const box = detection.boundingBox;
+                const nose = (detection.keypoints || [])
+                    .find((keypoint) => keypoint.label?.toLowerCase().includes("nose"));
+                const centerX = nose?.x ?? (box.originX + box.width / 2) / message.width;
+                const centerY = nose?.y ?? (box.originY + box.height / 2) / message.height;
+                return {
+                    x: (centerX - 0.5) * 2,
+                    y: centerY,
+                    face_scale: Math.sqrt((box.width / message.width) * (box.height / message.height)),
+                    confidence: detection.categories?.[0]?.score || 0,
+                };
+            });
+        self.postMessage({ type: "faces", faces, frameId: message.frameId });
     } catch (error) {
         self.postMessage({ type: "error", message: error?.message || "顔位置を検出できませんでした" });
     } finally {
