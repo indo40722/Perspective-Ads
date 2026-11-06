@@ -22,6 +22,7 @@ export function createViewerSelector(options = {}) {
   let selectedId = null;
   let previousState = "empty";
   let suspendedUntilMs = 0;
+  let identityAmbiguousAt = null;
 
   const reset = () => {
     tracks = new Map();
@@ -29,6 +30,7 @@ export function createViewerSelector(options = {}) {
     nextId = 1;
     previousState = "empty";
     suspendedUntilMs = 0;
+    identityAmbiguousAt = null;
   };
 
   const suspend = (durationMs, nowMs) => {
@@ -143,6 +145,14 @@ export function createViewerSelector(options = {}) {
     // Do not pass control during ambiguous overlap.
     const crowded = visibleTarget && [...tracks.values()].some((t) =>
       t.id !== selectedId && t.lastSeenAt === nowMs && dist(visibleTarget, t) < cfg.competingFaceDistance);
+    // Overlapping faces make anonymous position-based identity uncertain.
+    // Do not transfer the selection to an arbitrary person after they cross.
+    if (selectedId !== null && crowded && identityAmbiguousAt === null) identityAmbiguousAt = nowMs;
+    if (selectedId !== null && identityAmbiguousAt !== null &&
+        (!crowded || nowMs - identityAmbiguousAt >= 300)) {
+      released = true;
+      reset();
+    }
     const state = released ? "released" : visibleTarget && !crowded ? "locked" :
       selectedId !== null ? "occluded" : observations.length ? "waiting" : "empty";
     const result = {
