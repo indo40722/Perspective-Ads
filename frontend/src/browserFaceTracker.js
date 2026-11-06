@@ -1,4 +1,6 @@
-export function createBrowserFaceTracker({ wasmRoot, modelUrl, onFace, onFaceLost, onStatus }) {
+import { createViewerSelector } from "./viewerSelection.js";
+
+export function createBrowserFaceTracker({ wasmRoot, modelUrl, onFace, onFaceLost, onViewerReleased, onStatus }) {
     let stream = null;
     let video = null;
     let worker = null;
@@ -11,6 +13,7 @@ export function createBrowserFaceTracker({ wasmRoot, modelUrl, onFace, onFaceLos
     let frameInFlight = false;
     let running = false;
     let lastFaceDetected = false;
+    const viewerSelector = createViewerSelector();
 
     const reportError = (error) => {
         onStatus?.("error", error?.message || "顔検出を開始できませんでした");
@@ -32,6 +35,30 @@ export function createBrowserFaceTracker({ wasmRoot, modelUrl, onFace, onFaceLos
             readyResolver = null;
             readyRejecter = null;
             reportError(error);
+            return;
+        }
+        if (message.type === "faces") {
+            frameInFlight = false;
+            const nowMs = performance.now();
+            const selection = viewerSelector.update(message.faces, nowMs);
+            if (selection.face) {
+                lastFaceDetected = true;
+                onFace?.({ ...selection.face, frame_id: message.frameId });
+            } else if (lastFaceDetected) {
+                lastFaceDetected = false;
+                onFaceLost?.({ frame_id: message.frameId });
+            }
+            if (selection.released) {
+                const holdMs = onViewerReleased?.() || 0;
+                if (holdMs > 0) viewerSelector.suspend(holdMs, nowMs);
+            }
+            if (selection.stateChanged && selection.state === "waiting") {
+                onStatus?.("participant-waiting", "顔を検出しました。横に動くか、近づいて参加してください");
+            } else if (selection.stateChanged && selection.state === "occluded") {
+                onStatus?.("participant-occluded", "操作中の人を一時的に見失いました。画面を保持しています");
+            } else if (selection.stateChanged && selection.state === "cooldown") {
+                onStatus?.("participant-cooldown", "特典を読み取る時間を確保しています");
+            }
             return;
         }
         if (message.type === "face") {
@@ -122,6 +149,7 @@ export function createBrowserFaceTracker({ wasmRoot, modelUrl, onFace, onFaceLos
         video = null;
         frameInFlight = false;
         lastFaceDetected = false;
+        viewerSelector.reset();
         if (notify) onStatus?.("stopped");
     };
 
