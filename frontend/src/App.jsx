@@ -420,6 +420,8 @@ export default function App() {
         let lastDebugTime = 0;
         let lastVerificationTime = 0;
         let faceLostTimeoutId = 0;
+        let releaseResetTimeoutId = 0;
+        let activeTrackingId = null;
         let latestFrameId = -1;
         let statusMessage = "カメラ未接続・ドラッグ操作ができます";
         let currentStageIndex = 0;
@@ -488,6 +490,19 @@ export default function App() {
         const handleFaceData = (data = {}) => {
             if (verificationModeRef.current || performance.now() < manualInputUntilRef.current) return;
             window.clearTimeout(faceLostTimeoutId);
+            window.clearTimeout(releaseResetTimeoutId);
+            releaseResetTimeoutId = 0;
+            const trackingId = Number(data.tracking_id);
+            if (Number.isFinite(trackingId) && trackingId !== activeTrackingId) {
+                activeTrackingId = trackingId;
+                neutralFaceXRef.current = null;
+                neutralFaceScaleRef.current = null;
+                calibrationSamples.length = 0;
+                calibrationScaleSamples.length = 0;
+                recentFaceXSamples.length = 0;
+                recentFaceScaleSamples.length = 0;
+                filter.reset();
+            }
             faceLostTimeoutId = 0;
 
             const frameId = Number(data.frame_id);
@@ -508,6 +523,15 @@ export default function App() {
             faceDetectedRef.current = true;
             setCameraReady(true);
 
+            if (neutralFaceXRef.current === null &&
+                Number.isFinite(Number(data.baseline_x)) &&
+                Number.isFinite(Number(data.baseline_face_scale)) &&
+                Number(data.baseline_face_scale) > 0) {
+                // Use the participant's position before the movement that selected them.
+                neutralFaceXRef.current = Number(data.baseline_x);
+                neutralFaceScaleRef.current = Number(data.baseline_face_scale);
+                filter.reset();
+            }
             if (neutralFaceXRef.current === null) {
                 calibrationSamples.push(rawX);
                 if (Number.isFinite(faceScale) && faceScale > 0) calibrationScaleSamples.push(faceScale);
@@ -583,6 +607,41 @@ export default function App() {
                 targetViewerXRef.current = 0;
                 targetViewerDepthRef.current = 0;
             }, 900);
+        };
+
+        const handleViewerReleased = () => {
+            if (verificationModeRef.current) return 0;
+            faceDetectedRef.current = false;
+            activeTrackingId = null;
+            neutralFaceXRef.current = null;
+            neutralFaceScaleRef.current = null;
+            recentFaceXSamples.length = 0;
+            recentFaceScaleSamples.length = 0;
+            calibrationSamples.length = 0;
+            calibrationScaleSamples.length = 0;
+            filter.reset();
+            window.clearTimeout(faceLostTimeoutId);
+            window.clearTimeout(releaseResetTimeoutId);
+
+            const clearExperience = () => {
+                // Never reuse another visitor's draw when returning to an idle screen.
+                const campaignId = campaignRef.current.id;
+                rewardDrawsRef.current.delete(campaignId);
+                campaignSessionsRef.current.delete(campaignId);
+                try {
+                    window.sessionStorage.removeItem(`perspective-ads-${campaignId}-session`);
+                } catch {
+                    // Session state is also stored in memory.
+                }
+                resetViewRef.current();
+            };
+            if (journeyTrackerRef.current.snapshot().phase === "revealed") {
+                // Keep QR visible while a phone is being prepared to scan it.
+                releaseResetTimeoutId = window.setTimeout(clearExperience, 6000);
+                return 6000;
+            }
+            clearExperience();
+            return 0;
         };
 
         const socket = browserTrackingEnabled ? null : io();
@@ -671,6 +730,7 @@ export default function App() {
                 modelUrl,
                 onFace: handleFaceData,
                 onFaceLost: handleFaceLost,
+                onViewerReleased: handleViewerReleased,
                 onStatus: (cameraStatus, message) => {
                     if (cameraStatus === "ready") {
                         cameraConnectedRef.current = true;
@@ -687,6 +747,9 @@ export default function App() {
                         setStatus("カメラ停止中・ドラッグで操作できます");
                     } else if (cameraStatus === "error") {
                         setBrowserCameraError(message || "顔検出を開始できませんでした");
+                    } else if (cameraStatus.startsWith("participant-") && !verificationModeRef.current) {
+                        statusMessage = message || "参加者を探しています";
+                        setStatus(statusMessage);
                     }
                 },
             });
@@ -1042,6 +1105,7 @@ export default function App() {
             effectDisposed = true;
             cancelAnimationFrame(animationFrameId);
             window.clearTimeout(faceLostTimeoutId);
+            window.clearTimeout(releaseResetTimeoutId);
             window.removeEventListener("keydown", handleKeyDown);
             stageHost.removeEventListener("pointerdown", handlePointerDown);
             stageHost.removeEventListener("pointermove", handlePointerMove);
